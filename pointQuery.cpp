@@ -3,22 +3,63 @@
 #include <optix.h>
 #include <optix_stubs.h>
 #include <optix_function_table_definition.h>
+#include "pointQuery.h"
 
 
-  
-  /*! main entry point to this example - initially optix, print hello
-    world, then exit */
-  extern "C" int main(int ac, char **av)
+
+
+ /*! SBT record for a raygen program */
+struct __align__( OPTIX_SBT_RECORD_ALIGNMENT ) RaygenRecord
+{
+  __align__( OPTIX_SBT_RECORD_ALIGNMENT ) char header[OPTIX_SBT_RECORD_HEADER_SIZE];
+  // just a dummy value - later examples will use more interesting
+  // data here
+  void *data;
+};
+
+/*! SBT record for a miss program */
+struct __align__( OPTIX_SBT_RECORD_ALIGNMENT ) MissRecord
+{
+  __align__( OPTIX_SBT_RECORD_ALIGNMENT ) char header[OPTIX_SBT_RECORD_HEADER_SIZE];
+  // just a dummy value - later examples will use more interesting
+  // data here
+  void *data;
+};
+
+/*! SBT record for a hitgroup program */
+struct __align__( OPTIX_SBT_RECORD_ALIGNMENT ) HitgroupRecord
+{
+  __align__( OPTIX_SBT_RECORD_ALIGNMENT ) char header[OPTIX_SBT_RECORD_HEADER_SIZE];
+  // just a dummy value - later examples will use more interesting
+  // data here
+  int objectID;
+};
+
+PointQuery::PointQuery()
   {
+      
     
-      std::cout << "#initializing optix..." << std::endl;
-      
-      optixInit();
-      
-      std::cout << "#done!" << std::endl;
 
-    return 0;
+
   }
+
+
+
+
+
+/*! main entry point to this example - initially optix, print hello
+  world, then exit */
+extern "C" int main(int ac, char **av)
+{
+  
+    std::cout << "#initializing optix..." << std::endl;
+    
+    optixInit();
+    
+    std::cout << "#done!" << std::endl;
+
+  return 0;
+}
 
 
 
