@@ -35,13 +35,59 @@ struct __align__( OPTIX_SBT_RECORD_ALIGNMENT ) HitgroupRecord
   int objectID;
 };
 
+
+
 PointQuery::PointQuery()
   {
-      
-    
-
-
+    launchOptix();
   }
+
+void PointQuery::launchOptix()
+{
+   std::cout << "#osc: setting up module ..." << std::endl;
+  optixInit();
+   std::cout << "#osc: setting up module ..." << std::endl;
+}
+
+void PointQuery::createContext()
+{
+
+}
+
+void PointQuery::createModule()
+{
+  
+}
+
+void PointQuery::createRaygenPrograms()
+{
+
+}
+
+void PointQuery::createMissPrograms()
+{
+  
+}
+
+void PointQuery::createHitgroupPrograms()
+{
+
+}
+
+void PointQuery::createPipeline()
+{
+
+}
+
+void PointQuery::buildSBT()
+{
+  
+}
+
+
+
+
+
 
 
 
@@ -52,11 +98,9 @@ PointQuery::PointQuery()
 extern "C" int main(int ac, char **av)
 {
   
-    std::cout << "#initializing optix..." << std::endl;
-    
-    optixInit();
-    
-    std::cout << "#done!" << std::endl;
+  PointQuery query;
+  
+
 
   return 0;
 }

@@ -11,6 +11,16 @@ struct Params
 class PointQuery
 {
     public:
-
     PointQuery();
+
+    protected:
+    void launchOptix();
+    void createContext();
+    void createModule();
+    void createRaygenPrograms();
+    void createMissPrograms();
+    void createHitgroupPrograms();
+    void createPipeline();
+    void buildSBT();
+    
 };
