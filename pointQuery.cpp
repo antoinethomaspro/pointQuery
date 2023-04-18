@@ -95,7 +95,7 @@ void PointQuery::createModule()
   pipelineCompileOptions.numPayloadValues   = 2;
   pipelineCompileOptions.numAttributeValues = 2;
   pipelineCompileOptions.exceptionFlags     = OPTIX_EXCEPTION_FLAG_NONE;
-  pipelineCompileOptions.pipelineLaunchParamsVariableName = "optixLaunchParams"; // a mettre en relation avec le params dans cu
+  pipelineCompileOptions.pipelineLaunchParamsVariableName = "params"; // a mettre en relation avec le params dans cu
 
   pipelineLinkOptions.maxTraceDepth          = 2;
     
