@@ -287,9 +287,49 @@ void PointQuery::buildSBT()
   
 }
 
+void PointQuery::render()
+  {
+    // sanity check: make sure we launch only after first resize is
+    // already done:
+    if (params.fbSize.x == 0) return;
+
+    launchParamsBuffer.upload(&params,1);
+    params.frameID++;
+      
+    OPTIX_CHECK(optixLaunch(/*! pipeline we're launching launch: */
+                            pipeline,stream,
+                            /*! parameters and SBT */
+                            launchParamsBuffer.d_pointer(),
+                            launchParamsBuffer.sizeInBytes,
+                            &sbt,
+                            /*! dimensions of the launch: */
+                            params.fbSize.x,
+                            params.fbSize.y,
+                            1
+                            ));
+    // sync - make sure the frame is rendered before we download and
+    // display (obviously, for a high-performance application you
+    // want to use streams and double-buffering, but for this simple
+    // example, this will have to do)
+    CUDA_SYNC_CHECK();
+  }
 
 
 
+/*! resize frame buffer to given resolution */
+void PointQuery::resize(const float2 &newSize)
+{
+  // if window minimized
+  if (newSize.x == 0 | newSize.y == 0) return;
+  
+  // resize our cuda frame buffer
+  colorBuffer.resize(newSize.x*newSize.y*sizeof(uint32_t));
+
+  // update the launch parameters that we'll pass to the optix
+  // launch:
+  params.fbSize      = newSize;
+  params.colorBuffer = (uint32_t*)colorBuffer.d_ptr;
+}
 
 
 
