@@ -26,13 +26,13 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-OPTIX_add_sample_executable( pointQuery target_name
-  pointQuery.cpp
+OPTIX_add_sample_executable( optixInOneWeekend target_name
+  optixInOneWeekend.cu
+  optixInOneWeekend.cpp
+  optixInOneWeekend.h
   OPTIONS -rdc true
   )
 
 target_link_libraries( ${target_name}
   ${CUDA_LIBRARIES}
-  ${CUDA_CUDA_LIBRARY}
   )
-
