@@ -28,10 +28,11 @@
 
 OPTIX_add_sample_executable( pointQuery target_name
   pointQuery.cpp
-  optix7.h
   OPTIONS -rdc true
   )
 
 target_link_libraries( ${target_name}
   ${CUDA_LIBRARIES}
+  ${CUDA_CUDA_LIBRARY}
   )
+
