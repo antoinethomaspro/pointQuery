@@ -15,8 +15,8 @@ struct Params
 
     OptixTraversableHandle handle;
 
-    // 動的にシーンを変更するための時間とマウス位置
-    // ホスト側(CPU)で毎フレーム値を更新して、デバイス側(GPU)に転送する
+    // Time and mouse position for dynamic scene changes
+    // Update the value every frame on the host side (CPU) and transfer it to the device side (GPU)
     float time;
     float mouse_x;
     float mouse_y;
@@ -35,52 +35,52 @@ struct MissData
 
 struct SphereData
 {
-    // 球の中心
+    // center of the sphere
     float3 center;
-    // 球の半径
+    // sphere radius
     float radius;
 };
 
 struct MeshData
 {
-    // メッシュの頂点
+    // vertices of the mesh
     float3* vertices;
-    // 三角形を構成するための頂点番号3点
+    // Vertex number 3 points for constructing a triangle
     uint3* indices;
 };
 
 struct LambertianData {
-    // Lambert マテリアルの色
+    // Lambert material color
     void* texture_data;
     unsigned int texture_prg_id;
 };
 
 struct DielectricData {
-    // 誘電体の色
+    // dielectric color
     void* texture_data;
     unsigned int texture_prg_id;
-    // 屈折率
+    // refractive index
     float ior; 
 };
 
 struct MetalData {
-    // 金属の色
+    // metal color
     void* texture_data;
     unsigned int texture_prg_id;
-    // 金属の疑似粗さを指定するパラメータ
+    // A parameter that specifies the pseudo-roughness of a metal
     float fuzz;
 };
 
 struct Material {
-    // マテリアル(Lambertian, Glass, Metal)のデータ
-    // デバイス上に確保されたポインタを紐づけておく
-    // 共用体(union)を使わずに汎用ポインタにすることで、
-    // 異なるデータ型の構造体を追加したいときに対応しやすくなる。
+    // Materials (Lambertian, Glass, Metal) data
+    // Bind the pointer allocated on the device
+    // By making it a general-purpose pointer without using a union,
+    // It becomes easier to handle when you want to add structures of different data types.
     void* data; 
 
-    // マテリアルにおける散乱方向や色を計算するためのCallablesプログラムのID
-    // OptiX 7.x では仮想関数が使えないので、Callablesプログラムを使って
-    // 疑似的なポリモーフィズムを実現する
+    // ID of a Callables program for calculating scattering directions and colors in materials
+    // Since OptiX 7.x cannot use virtual functions, use a Callables program to
+    // Realize pseudo-polymorphism
     unsigned int prg_id;
 };
 
@@ -98,8 +98,8 @@ struct CheckerData
 
 struct HitGroupData
 {
-    // 物体形状に関するデータ
-    // デバイス上に確保されたポインタを紐づける
+    // Data on object shape
+    // Bind the pointer allocated on the device
     void* shape_data;
 
     Material material;

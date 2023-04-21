@@ -1,33 +1,4 @@
-//
-// Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions
-// are met:
-//  * Redistributions of source code must retain the above copyright
-//    notice, this list of conditions and the following disclaimer.
-//  * Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//  * Neither the name of NVIDIA CORPORATION nor the names of its
-//    contributors may be used to endorse or promote products derived
-//    from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
-// EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-// PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
-// CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-// EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-// PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-// PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
-// OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-
-// gl_interopの前にincludeされる必要がある
-#include <glad/glad.h> 
+// <<glad/glad.h> must be included before gl_interop
 
 #include <cuda_gl_interop.h>
 #include <cuda_runtime.h>
@@ -36,11 +7,11 @@
 #include <optix_function_table_definition.h>
 #include <optix_stubs.h>
 
-// sampleConfig.h.in から自動生成されるヘッダーファイルをinclude
-// ディレクトリへのパスなどの環境変数が定義されている
+// Include the automatically generated header file from sampleConfig.h
+// An environment variable is defined, such as a path to a directory
 #include <sampleConfig.h>
 
-// OptiX SDK 提供のヘッダーファイルのinclude
+// Include header files provided by OptiX SDK
 #include <sutil/CUDAOutputBuffer.h>
 #include <sutil/Camera.h>
 #include <sutil/Exception.h>
@@ -67,22 +38,23 @@
 bool resize_dirty   = false;
 bool minimized      = false;
 
-// カメラ
+// camera
 bool camera_changed = true;
 sutil::Camera    camera;
 sutil::Trackball trackball;
 
-// マウス
+// mouse
 int32_t mouse_button = -1;
 
-// 1度のカーネル起動におけるピクセルあたりのサンプル数
+// Number of samples per pixel per kernel launch
 int32_t samples_per_launch = 16;
 
-// Shader binding tableを構成するシェーダーレコードでヘッダーと任意のデータからなる。
-// ヘッダーサイズはOptiX 7.4ではOPTIX_SBT_RECORD_HEADER_SIZE (32 bytes)で固定の値である。
-// データはユーザー定義のデータ型を格納することが可能。ただし、Shader binding table内で
-// 複数のレコードを保持できるHitGroup record, Miss record, Callables recordはそれぞれで
-// レコードサイズが等しい必要がある。
+// A shader record that makes up a shader binding table and consists of a header and arbitrary data.
+// The header size is fixed at OPTIX_SBT_RECORD_HEADER_SIZE (32 bytes) in OptiX 7.4.
+// Data can store user-defined data types. However, in the Shader binding table
+// Each HitGroup record, Miss record, and Callables record can hold multiple records.
+// Record sizes must be equal.
+
 template <typename T>
 struct Record 
 {
@@ -95,19 +67,19 @@ using MissRecord     = Record<MissData>;
 using HitGroupRecord = Record<HitGroupData>;
 using EmptyRecord    = Record<EmptyData>;
 
-// Direct/Continuation callable プログラムをデバイス(GPU)側で呼ぶには、
-// CallablesプログラムのSBT_IDが必要なので、生成順で番号を割り振って起き、
-// その順番でCallables用のSBTを構築するようにする
+// To call a Direct/Continuation callable program on the device (GPU) side,
+// Since the SBT_ID of the Callables program is required, assign a number in the order of generation and wake up,
+// Build SBT for Callables in that order
 struct CallableProgram
 {
     OptixProgramGroup program = nullptr;
     uint32_t          id      = 0;
 };
 
-// Geometry acceleration structure (GAS) 用
-// GASのtraversable handleをOptixInstanceに紐づける際に、
-// GASが保持するSBT recordの数がわかると、
-// Instanceのsbt offsetを一括で構築しやすい
+// Geometry acceleration structure (GAS) 
+// When linking the traversable handle of GAS to OptixInstance,
+// Knowing the number of SBT records held by GAS,
+// Easy to build sbt offset of Instance all at once
 struct GeometryAccelData
 {
     OptixTraversableHandle handle;
@@ -122,8 +94,8 @@ struct InstanceAccelData
     OptixTraversableHandle handle;
     CUdeviceptr d_output_buffer;
     
-    // IASを構築しているOptixInstanceのデータを更新できるように、
-    // デバイス側のポインタを格納しておく
+    // so that we can update the data in the OptixInstance building the IAS,
+    // store the pointer on the device side
     CUdeviceptr d_instances_buffer;
 };
 
@@ -137,37 +109,37 @@ struct OneWeekendState
 {
     OptixDeviceContext context = 0;
 
-    // シーン全体のInstance acceleration structure
+    // Instance acceleration structure for the whole scene
     InstanceAccelData           ias                      = {};
-    // GPU上におけるシーンの球体データ全てを格納している配列のポインタ
+    // A pointer to an array containing all the scene sphere data on the GPU
     void*                       d_sphere_data            = nullptr;
-    // GPU上におけるシーンの三角形データ全てを格納している配列のポインタ
+    // A pointer to an array containing all scene triangle data on the GPU
     void*                       d_mesh_data              = nullptr;
 
     OptixModule                 module                   = nullptr;
     OptixPipelineCompileOptions pipeline_compile_options = {};
     OptixPipeline               pipeline                 = nullptr;
 
-    // Ray generation プログラム 
+    // Ray generation program
     OptixProgramGroup           raygen_prg               = nullptr;
-    // Miss プログラム
+    // Miss program
     OptixProgramGroup           miss_prg                 = nullptr;
 
-    // 球体用のHitGroup プログラム
+    // HitGroup program for spheres
     OptixProgramGroup           sphere_hitgroup_prg      = nullptr;
-    // メッシュ用のHitGroupプログラム
+    // HitGroup program for mesh
     OptixProgramGroup           mesh_hitgroup_prg        = nullptr;
 
-    // マテリアル用のCallableプログラム
-    // OptiXでは基底クラスのポインタを介した、派生クラスの関数呼び出し (ポリモーフィズム)が
-    // 禁止されているため、Callable関数を使って疑似的なポリモーフィズムを実現する
-    // ここでは、Lambertian, Dielectric, Metal の3種類を実装している
+    // Callable program for materials
+    // OptiX supports derived class function calls (polymorphism) through base class pointers.
+    // Forbidden, use Callable functions to achieve pseudo-polymorphism
+    // Here, three types of Lambertian, Dielectric, and Metal are implemented.
     CallableProgram             lambertian_prg           = {};
     CallableProgram             dielectric_prg           = {};
     CallableProgram             metal_prg                = {};
 
-    // テクスチャ用のCallableプログラム
-    // Constant ... 単色、Checker ... チェッカーボード
+    // Callable program for textures
+    // Constant ... Solid Color, Checker ... Checkerboard
     CallableProgram             constant_prg             = {};
     CallableProgram             checker_prg              = {};
 
@@ -175,8 +147,8 @@ struct OneWeekendState
     CUstream                    stream                   = 0;
 
     // Pipeline launch parameters
-    // CUDA内で extern "C" __constant__ Params params
-    // と宣言することで、全モジュールからアクセス可能である。
+    // CUDA extern "C" __constant__ Params params
+    // can be accessed from all modules by declaration
     Params                      params;
     Params*                     d_params;
 
@@ -207,14 +179,14 @@ static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos)
 {
     Params* params = static_cast<Params*>(glfwGetWindowUserPointer(window));
 
-    // 左クリック中にマウスが移動した場合は、注視点を固定してカメラを動かす
+    // If the mouse moves while left-clicking, fix the gaze point and move the camera
     if (mouse_button == GLFW_MOUSE_BUTTON_LEFT)
     {
         trackball.setViewMode(sutil::Trackball::LookAtFixed);
         trackball.updateTracking(static_cast<int>(xpos), static_cast<int>(ypos), params->width, params->height);
         camera_changed = true;
     }
-    // 右クリック中にマウスが移動した場合は、カメラの原点を固定して注視点を動かす
+    // If the mouse moves while right-clicking, fix the camera origin and move the gaze point
     else if (mouse_button == GLFW_MOUSE_BUTTON_RIGHT)
     {
         trackball.setViewMode(sutil::Trackball::EyeFixed);
@@ -226,11 +198,11 @@ static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos)
 // -----------------------------------------------------------------------
 static void windowSizeCallback( GLFWwindow* window, int32_t res_x, int32_t res_y )
 {
-    // ウィンドウが最小化された時に、最小化される前のウィンドウの解像度を保存しておく
+    // Save window resolution before minimization when window is minimized
     if( minimized )
         return;
 
-    // ウィンドウサイズが最小でも 1 x 1 になるようにする
+    // Ensure window size is at least 1 x 1
     sutil::ensureMinimumSize( res_x, res_y );
 
     Params* params = static_cast<Params*>( glfwGetWindowUserPointer( window ) );
@@ -295,7 +267,7 @@ void printUsageAndExit(const char* argv0)
 }
 
 // -----------------------------------------------------------------------
-// Pipeline launch parameterの初期化
+// Initialize pipeline launch parameter
 // -----------------------------------------------------------------------
 void initLaunchParams( OneWeekendState& state )
 {
@@ -309,7 +281,7 @@ void initLaunchParams( OneWeekendState& state )
     state.params.subframe_index = 0u;
     state.params.max_depth = 5;
 
-    // レイトレーシングを行うASのtraversableHandleを設定
+    // Set traversableHandle for raytracing AS
     state.params.handle = state.ias.handle;
 
     CUDA_CHECK(cudaStreamCreate(&state.stream));
@@ -317,8 +289,8 @@ void initLaunchParams( OneWeekendState& state )
 }
 
 // -----------------------------------------------------------------------
-// カメラの更新処理
-// マウス入力等でカメラが動いた際にlaunch parameterも更新する
+// Camera update process
+// Update the launch parameter when the camera moves due to mouse input etc.
 // -----------------------------------------------------------------------
 void handleCameraUpdate( Params& params )
 {
@@ -332,8 +304,8 @@ void handleCameraUpdate( Params& params )
 }
 
 // -----------------------------------------------------------------------
-// ウィンドウサイズが変化したときの処理
-// レイトレーシングによる計算結果を格納するバッファを更新する
+// Handling when the window size changes
+// Update the buffer that stores the results of ray tracing calculations
 // -----------------------------------------------------------------------
 void handleResize( sutil::CUDAOutputBuffer<uchar4>& output_buffer, Params& params )
 {
@@ -352,7 +324,7 @@ void handleResize( sutil::CUDAOutputBuffer<uchar4>& output_buffer, Params& param
 }
 
 // -----------------------------------------------------------------------
-// カメラとウィンドウサイズの変化を監視
+// Monitor camera and window size changes
 // -----------------------------------------------------------------------
 void updateState( sutil::CUDAOutputBuffer<uchar4>& output_buffer, Params& params )
 {
@@ -365,7 +337,7 @@ void updateState( sutil::CUDAOutputBuffer<uchar4>& output_buffer, Params& params
 }
 
 // -----------------------------------------------------------------------
-// optixLaunchを呼び出し、デバイス側のレイトレーシングカーネルを起動
+// Call optixLaunch to launch the device-side ray tracing kernel
 // -----------------------------------------------------------------------
 void launchSubframe( sutil::CUDAOutputBuffer<uchar4>& output_buffer, OneWeekendState& state )
 {
@@ -392,7 +364,7 @@ void launchSubframe( sutil::CUDAOutputBuffer<uchar4>& output_buffer, OneWeekendS
 }
 
 // -----------------------------------------------------------------------
-// OpenGLを介してレンダリング結果を描画
+// Draw rendered results via OpenGL
 // -----------------------------------------------------------------------
 void displaySubframe( sutil::CUDAOutputBuffer<uchar4>& output_buffer, sutil::GLDisplay& gl_display, GLFWwindow* window )
 {
@@ -410,9 +382,9 @@ void displaySubframe( sutil::CUDAOutputBuffer<uchar4>& output_buffer, sutil::GLD
 }
 
 // -----------------------------------------------------------------------
-// デバイス側からのメッセージを取得するためのCallable関数
-// OptixDeviceContextを生成する際に、
-// OptixDeviceContext::logCallbackFunctionに登録する
+// Callable function for getting messages from the device side
+// When creating OptixDeviceContext, 
+// Register with OptixDeviceContext::logCallbackFunction
 // -----------------------------------------------------------------------
 static void contextLogCallback(uint32_t level, const char* tag, const char* msg, void* /* callback_data */)
 {
@@ -420,7 +392,7 @@ static void contextLogCallback(uint32_t level, const char* tag, const char* msg,
 }
 
 // -----------------------------------------------------------------------
-// カメラの初期化
+// camera initialization
 // -----------------------------------------------------------------------
 void initCameraState()
 {
@@ -443,11 +415,11 @@ void initCameraState()
 }
 
 // -----------------------------------------------------------------------
-// OptixDeviceContextの初期化
+// Initialize OptixDeviceContext
 // -----------------------------------------------------------------------
 void createContext( OneWeekendState& state )
 {
-    // CUDAの初期化
+    // CUDA initialization
     CUDA_CHECK( cudaFree( 0 ) );
 
     OptixDeviceContext context;
@@ -455,12 +427,12 @@ void createContext( OneWeekendState& state )
     OPTIX_CHECK( optixInit() );
     OptixDeviceContextOptions options = {};
     options.logCallbackFunction  = &contextLogCallback;
-    // Callbackで取得するメッセージのレベル
-    // 0 ... disable、メッセージを受け取らない
-    // 1 ... fatal、修復不可能なエラー。コンテクストやOptiXが不能状態にある
-    // 2 ... error、修復可能エラー。
-    // 3 ... warning、意図せぬ挙動や低パフォーマンスを導くような場合に警告してくれる
-    // 4 ... print、全メッセージを受け取る
+    // Level of message to get in Callback
+    // 0 ... disable, don't receive messages
+    // 1 ... fatal, Unrecoverable error. Context or OptiX disabled
+    // 2 ... error, Correctable error.
+    // 3 ... warning, It warns you about unintended behavior or leads to poor performance.
+    // 4 ... print, receive all messages
     options.logCallbackLevel     = 4;
     OPTIX_CHECK( optixDeviceContextCreate( cu_ctx, &options, &context ) );
 
@@ -468,8 +440,8 @@ void createContext( OneWeekendState& state )
 }
 
 // -----------------------------------------------------------------------
-// 重複のないインデックスの個数を数える
-// 例) { 0, 0, 0, 1, 1, 2, 2, 2 } -> 3 
+// Count the number of unique indexes
+// (for example) { 0, 0, 0, 1, 1, 2, 2, 2 } -> 3 
 // -----------------------------------------------------------------------
 uint32_t getNumSbtRecords(const std::vector<uint32_t>& sbt_indices)
 {
@@ -484,15 +456,15 @@ uint32_t getNumSbtRecords(const std::vector<uint32_t>& sbt_indices)
 }
 
 // -----------------------------------------------------------------------
-// Geometry acceleration structureの構築
+// Building a Geometry acceleration structure
 // -----------------------------------------------------------------------
 void buildGAS( OneWeekendState& state, GeometryAccelData& gas, OptixBuildInput& build_input)
 {
     OptixAccelBuildOptions accel_options = {};
-    accel_options.buildFlags = OPTIX_BUILD_FLAG_ALLOW_COMPACTION; // ビルド後のCompactionを許可
-    accel_options.operation = OPTIX_BUILD_OPERATION_BUILD;        // ASの更新の際は OPERATION_UPDATE
+    accel_options.buildFlags = OPTIX_BUILD_FLAG_ALLOW_COMPACTION; // Allow compaction after build
+    accel_options.operation = OPTIX_BUILD_OPERATION_BUILD;        // OPERATION_UPDATE when updating AS
 
-    // ASのビルドに必要なメモリ領域を計算
+    // Calculate the memory area required for AS build
     OptixAccelBufferSizes gas_buffer_sizes;
     OPTIX_CHECK( optixAccelComputeMemoryUsage(
         state.context, 
@@ -502,7 +474,7 @@ void buildGAS( OneWeekendState& state, GeometryAccelData& gas, OptixBuildInput& 
         &gas_buffer_sizes
     ));
 
-    // ASを構築するための一時バッファを確保
+    // Allocate a temporary buffer for building AS
     CUdeviceptr d_temp_buffer;
     CUDA_CHECK( cudaMalloc( reinterpret_cast<void**>( &d_temp_buffer ), gas_buffer_sizes.tempSizeInBytes ) );
 
@@ -513,12 +485,12 @@ void buildGAS( OneWeekendState& state, GeometryAccelData& gas, OptixBuildInput& 
         compacted_size_offset + 8
     ));
 
-    // Compaction後のデータ領域を確保するためのEmit property
+    // Emit property to secure the data area after compaction
     OptixAccelEmitDesc emit_property = {};
     emit_property.type = OPTIX_PROPERTY_TYPE_COMPACTED_SIZE;
     emit_property.result = ( CUdeviceptr )( (char*)d_buffer_temp_output_gas_and_compacted_size + compacted_size_offset );
 
-    // ASのビルド
+    // AS build
     OPTIX_CHECK(optixAccelBuild(
         state.context,
         state.stream,
@@ -534,12 +506,12 @@ void buildGAS( OneWeekendState& state, GeometryAccelData& gas, OptixBuildInput& 
         1
     ));
 
-    // 一時バッファは必要ないので解放
+    // free the temporary buffer as it is not needed
     CUDA_CHECK(cudaFree(reinterpret_cast<void*>(d_temp_buffer)));
 
     size_t compacted_gas_size;
     CUDA_CHECK(cudaMemcpy(&compacted_gas_size, (void*)emit_property.result, sizeof(size_t), cudaMemcpyDeviceToHost));
-    // Compaction後の領域が、Compaction前の領域サイズよりも小さい場合のみ Compactionを行う
+    // Perform compaction only if the area after compaction is smaller than the area size before compaction
     if (compacted_gas_size < gas_buffer_sizes.outputSizeInBytes)
     {
         CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&gas.d_output_buffer), compacted_gas_size));
@@ -553,8 +525,8 @@ void buildGAS( OneWeekendState& state, GeometryAccelData& gas, OptixBuildInput& 
 }
 
 // -----------------------------------------------------------------------
-// Mesh用のGASを構築
-// デバイス側のポインタ(state.d_mesh_data)へのデータコピーも同時に行う
+// build GAS for mesh
+// Also copy data to device side pointer (state.d_mesh_data) at the same time
 // -----------------------------------------------------------------------
 void buildMeshGAS(
     OneWeekendState& state, 
@@ -564,7 +536,7 @@ void buildMeshGAS(
     const std::vector<uint32_t>& sbt_indices
 )
 {
-    // メッシュを構成する頂点情報をGPU上にコピー
+    // Copy the vertex information that makes up the mesh to the GPU
     CUdeviceptr d_vertices = 0;
     const size_t vertices_size = vertices.size() * sizeof(float3);
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_vertices), vertices_size));
@@ -574,7 +546,7 @@ void buildMeshGAS(
         cudaMemcpyHostToDevice
     ));
 
-    // 頂点のつなぎ方を定義するインデックス情報をGPU上にコピー
+    // Copy index information that defines how to connect vertices to GPU
     CUdeviceptr d_indices = 0;
     const size_t indices_size = indices.size() * sizeof(uint3);
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_indices), indices_size));
@@ -584,14 +556,14 @@ void buildMeshGAS(
         cudaMemcpyHostToDevice 
     ));
     
-    // メッシュデータを構造体に格納し、GPU上にコピー
+    // Store mesh data in structure and copy to GPU
     MeshData mesh_data{reinterpret_cast<float3*>(d_vertices), reinterpret_cast<uint3*>(d_indices) };
     CUDA_CHECK(cudaMalloc(&state.d_mesh_data, sizeof(MeshData)));
     CUDA_CHECK(cudaMemcpy(
         state.d_mesh_data, &mesh_data, sizeof(MeshData), cudaMemcpyHostToDevice
     ));
 
-    // Instance sbt offsetを基準としたsbt indexの配列をGPUにコピー
+    // Copy array of sbt indices relative to Instance sbt offset to GPU
     CUdeviceptr d_sbt_indices = 0;
     const size_t sbt_indices_size = sbt_indices.size() * sizeof(uint32_t);
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_sbt_indices), sbt_indices_size));
@@ -601,18 +573,18 @@ void buildMeshGAS(
         cudaMemcpyHostToDevice
     ));
 
-    // 重複のないsbt_indexの個数を数える
+    // Count the number of unique sbt_indexes
     uint32_t num_sbt_records = getNumSbtRecords(sbt_indices);
     gas.num_sbt_records = num_sbt_records;
 
-    // 重複のないsbt_indexの分だけflagsを設定する
-    // Anyhit プログラムを使用したい場合はFLAG_NONE or FLAG_REQUIRE_SINGLE_ANYHIT_CALL に設定する
+    // Set flags for sbt_index with no duplication
+    // Set to FLAG_NONE or FLAG_REQUIRE_SINGLE_ANYHIT_CALL if you want to use the Anyhit program
     uint32_t* input_flags = new uint32_t[num_sbt_records];
     for (uint32_t i = 0; i < num_sbt_records; i++)
         input_flags[i] = OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT;
 
-    // メッシュの頂点情報やインデックスバッファ、SBTレコードのインデックス配列をbuild inputに設定
-    // num_sbt_recordsはあくまでSBTレコードの数で三角形の数でないことに注意
+    // Set mesh vertex information, index buffer, SBT record index array to build input
+    // Note that num_sbt_records is the number of SBT records, not the number of triangles.
     OptixBuildInput mesh_input = {};
     mesh_input.type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
     mesh_input.triangleArray.vertexFormat = OPTIX_VERTEX_FORMAT_FLOAT3;
@@ -633,8 +605,8 @@ void buildMeshGAS(
 }
 
 // -----------------------------------------------------------------------
-// Sphere用のGASを構築
-// デバイス側のポインタ(state.d_sphere_data)へのデータコピーも同時に行う
+// Building GAS for Sphere
+// Also copy data to the device side pointer (state.d_sphere_data) at the same time
 // -----------------------------------------------------------------------
 void buildSphereGAS(
     OneWeekendState& state, 
@@ -643,12 +615,12 @@ void buildSphereGAS(
     const std::vector<uint32_t>& sbt_indices
 )
 {
-    // Sphereの配列からAABBの配列を作る
+    // Create AABB array from Sphere array
     std::vector<OptixAabb> aabb;
     std::transform(spheres.begin(), spheres.end(), std::back_inserter(aabb),
         [](const SphereData& sphere) { return sphereBound(sphere); });
 
-    // AABBの配列をGPU上にコピー
+    // Copy array of AABB to GPU
     CUdeviceptr d_aabb_buffer;
     const size_t aabb_size = sizeof(OptixAabb) * aabb.size();
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_aabb_buffer), aabb_size));
@@ -658,7 +630,7 @@ void buildSphereGAS(
         cudaMemcpyHostToDevice
     ));
 
-    // Instance sbt offsetを基準としたsbt indexの配列をGPUにコピー
+    // Copy array of sbt indices relative to Instance sbt offset to GPU
     CUdeviceptr d_sbt_indices;
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_sbt_indices), sizeof(uint32_t) * sbt_indices.size()));
     CUDA_CHECK(cudaMemcpy(
@@ -667,24 +639,24 @@ void buildSphereGAS(
         cudaMemcpyHostToDevice
     ));
 
-    // 全球体データの配列をGPU上にコピー
-    // 個々の球体データへのアクセスはoptixGetPrimitiveIndex()を介して行う
+    // Copy array of global sphere data onto GPU
+    // Access to individual sphere data is via optixGetPrimitiveIndex()
     CUDA_CHECK(cudaMalloc(&state.d_sphere_data, sizeof(SphereData) * spheres.size()));
     CUDA_CHECK(cudaMemcpy(state.d_sphere_data, spheres.data(), sizeof(SphereData) * spheres.size(), cudaMemcpyHostToDevice));
 
-    // 重複のないsbt_indexの個数を数える
+    // Count the number of unique sbt_indexes
     uint32_t num_sbt_records = getNumSbtRecords(sbt_indices);
     gas.num_sbt_records = num_sbt_records;
 
-    // 重複のないsbt_indexの分だけflagsを設定する
-    // Anyhit プログラムを使用したい場合はFLAG_NONE or FLAG_REQUIRE_SINGLE_ANYHIT_CALL に設定する
+    // Set flags for sbt_index with no duplication
+    // Set to FLAG_NONE or FLAG_REQUIRE_SINGLE_ANYHIT_CALL if you want to use the Anyhit program
     uint32_t* input_flags = new uint32_t[num_sbt_records];
     for (uint32_t i = 0; i < num_sbt_records; i++)
         input_flags[i] = OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT;
 
-    // Custom primitives用のAABB配列やSBTレコードのインデックス配列を
-    // build input に設定する
-    // num_sbt_recordsはあくまでSBTレコードの数でプリミティブ数でないことに注意
+    // AABB array for custom primitives and index array of SBT records
+    // set in build input
+    // Note that num_sbt_records is the number of SBT records, not the primitive number.
     OptixBuildInput sphere_input = {};
     sphere_input.type = OPTIX_BUILD_INPUT_TYPE_CUSTOM_PRIMITIVES;
     sphere_input.customPrimitiveArray.aabbBuffers = &d_aabb_buffer;
@@ -699,7 +671,7 @@ void buildSphereGAS(
 }
 
 // -----------------------------------------------------------------------
-// Instance acceleration structureの構築
+// Building an instance acceleration structure
 // -----------------------------------------------------------------------
 void buildIAS(OneWeekendState& state, InstanceAccelData& ias, const std::vector<OptixInstance>& instances)
 {
@@ -732,7 +704,7 @@ void buildIAS(OneWeekendState& state, InstanceAccelData& ias, const std::vector<
 
     size_t d_temp_buffer_size = ias_buffer_sizes.tempSizeInBytes;
 
-    // ASを構築するための一時バッファを確保
+    // Allocate a temporary buffer for building AS
     CUdeviceptr d_temp_buffer;
     CUDA_CHECK(cudaMalloc(
         reinterpret_cast<void**>(&d_temp_buffer),
@@ -746,12 +718,12 @@ void buildIAS(OneWeekendState& state, InstanceAccelData& ias, const std::vector<
         compacted_size_offset + 8
     ));
 
-    // Compaction後のデータ領域を確保するためのEmit property
+    // Emit property to secure the data area after compaction
     OptixAccelEmitDesc emit_property = {};
     emit_property.type = OPTIX_PROPERTY_TYPE_COMPACTED_SIZE;
     emit_property.result = ( CUdeviceptr )( (char*)d_buffer_temp_output_ias_and_compacted_size + compacted_size_offset );
 
-    // ASのビルド
+    // AS build
     OPTIX_CHECK(optixAccelBuild(
         state.context,
         state.stream,
@@ -785,36 +757,36 @@ void buildIAS(OneWeekendState& state, InstanceAccelData& ias, const std::vector<
 }
 
 // -----------------------------------------------------------------------
-// OptixModuleの作成
+// Creating OptixModules
 // -----------------------------------------------------------------------
 void createModule(OneWeekendState& state)
 {
     OptixModuleCompileOptions module_compile_options = {};
     module_compile_options.maxRegisterCount = OPTIX_COMPILE_DEFAULT_MAX_REGISTER_COUNT;
     module_compile_options.optLevel = OPTIX_COMPILE_OPTIMIZATION_DEFAULT;
-    // ~7.3 系では OPTIX_COMPILE_DEBUG_LEVEL_LINEINFO
+    // ~7.3 series OPTIX_COMPILE_DEBUG_LEVEL_LINEINFO
     module_compile_options.debugLevel = OPTIX_COMPILE_DEBUG_LEVEL_MINIMAL;
 
     state.pipeline_compile_options.usesMotionBlur = false;
     state.pipeline_compile_options.traversableGraphFlags = OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_ANY;
     state.pipeline_compile_options.numPayloadValues = 2;
-    // Attributeの個数設定
-    // Sphereの交差判定で法線とテクスチャ座標を intersection -> closesthitに渡すので
-    // (x, y, z) ... 3次元、(s, t) ... 2次元 で計5つのAttributeが必要 
-    // optixinOneWeekend.cu:339行目参照
+    // Attribute number setting
+    // Since the intersection detection of Sphere passes the normal and texture coordinates to intersection -> closesthit
+    // (x, y, z) ... 3D, (s, t) ... 2D with total of 5 Attributes required
+    // optixinOneWeekend.cu: see line 339
     state.pipeline_compile_options.numAttributeValues = 5;
 #ifdef DEBUG 
     state.pipeline_compile_options.exceptionFlags = OPTIX_EXCEPTION_FLAG_DEBUG | OPTIX_EXCEPTION_FLAG_TRACE_DEPTH | OPTIX_EXCEPTION_FLAG_STACK_OVERFLOW;
 #else
     state.pipeline_compile_options.exceptionFlags = OPTIX_EXCEPTION_FLAG_NONE;
 #endif
-    // Pipeline launch parameterの変数名
+    // Variable name for Pipeline launch parameter
     state.pipeline_compile_options.pipelineLaunchParamsVariableName = "params";
 
     size_t      inputSize = 0;
     const char* input = sutil::getInputData(OPTIX_SAMPLE_NAME, OPTIX_SAMPLE_DIR, "optixInOneWeekend.cu", inputSize);
 
-    // PTXからModuleを作成
+    // Create Module from PTX
     char   log[2048];
     size_t sizeof_log = sizeof(log);
     OPTIX_CHECK_LOG(optixModuleCreateFromPTX(
@@ -830,7 +802,7 @@ void createModule(OneWeekendState& state)
 }
 
 // -----------------------------------------------------------------------
-// Direct callable プログラムを生成する。生成するごとにcallable_idを1増やす
+// Generate a direct callable program. Increment callable_id by 1 for each generation
 // -----------------------------------------------------------------------
 void createDirectCallables(const OneWeekendState& state, CallableProgram& callable, const char* dc_function_name, uint32_t& callables_id)
 {
@@ -859,7 +831,7 @@ void createDirectCallables(const OneWeekendState& state, CallableProgram& callab
 }
 
 // -----------------------------------------------------------------------
-// 全ProgramGroupの作成
+// Create all ProgramGroups
 // -----------------------------------------------------------------------
 void createProgramGroups(OneWeekendState& state)
 {
@@ -943,7 +915,7 @@ void createProgramGroups(OneWeekendState& state)
     }
 
     uint32_t callables_id = 0;
-    // マテリアル用のCallableプログラム
+    // Callable program for material
     {
         // Lambertian
         createDirectCallables(state, state.lambertian_prg, "__direct_callable__lambertian", callables_id);
@@ -953,7 +925,7 @@ void createProgramGroups(OneWeekendState& state)
         createDirectCallables(state, state.metal_prg, "__direct_callable__metal", callables_id);
     }
 
-    // テクスチャ用のCallableプログラム
+    // Callable program for textures
     {
         // Constant texture
         createDirectCallables(state, state.constant_prg, "__direct_callable__constant", callables_id);
@@ -963,7 +935,7 @@ void createProgramGroups(OneWeekendState& state)
 }
 
 // -----------------------------------------------------------------------
-// OptixPipelineの作成
+// Creating an OptixPipeline
 // -----------------------------------------------------------------------
 void createPipeline(OneWeekendState& state)
 {
@@ -981,7 +953,7 @@ void createPipeline(OneWeekendState& state)
     };
 
     OptixPipelineLinkOptions pipeline_link_options = {};
-    // optixTrace()の呼び出し深度の設定
+    // set call depth for optixTrace()
     pipeline_link_options.maxTraceDepth = 2;
     pipeline_link_options.debugLevel = OPTIX_COMPILE_DEBUG_LEVEL_FULL;
 
@@ -998,7 +970,7 @@ void createPipeline(OneWeekendState& state)
         &state.pipeline
     ));
 
-    // 各プログラムからパイプラインによって構築されるCall graphのスタックサイズを計算
+    // Compute stack size of Call graph built by pipeline from each program
     OptixStackSizes stack_sizes = {};
     OPTIX_CHECK(optixUtilAccumulateStackSizes(state.raygen_prg, &stack_sizes));
     OPTIX_CHECK(optixUtilAccumulateStackSizes(state.miss_prg, &stack_sizes));
@@ -1011,9 +983,9 @@ void createPipeline(OneWeekendState& state)
     OPTIX_CHECK(optixUtilAccumulateStackSizes(state.checker_prg.program, &stack_sizes));
 
     uint32_t max_trace_depth = pipeline_link_options.maxTraceDepth;
-    // Continuation callableは使用していないので、0でよい
+    // Continuation callable is not used, so 0 is fine
     uint32_t max_cc_depth = 0;
-    // Direct callableの呼び出し深度は最大でも2回 (マテリアル -> テクスチャ)
+    // Direct callable call depth is at most 2 (Material -> Texture)
     uint32_t max_dc_depth = 3;
     uint32_t direct_callable_stack_size_from_traversable;
     uint32_t direct_callable_stack_size_from_state;
@@ -1028,9 +1000,9 @@ void createPipeline(OneWeekendState& state)
         &continuation_stack_size
     ));
 
-    // Traversable graphの深度を設定する
-    // 今回のように IAS -> GAS だけで終わるのであれば、traversable graphの深度は2となる
-    // IAS -> Motion transform -> GAS となるようであれば、深度は3必要となる
+    // set the depth of the traversable graph
+    // If it ends only with IAS -> GAS like this time, the depth of the traversable graph will be 2
+    // If IAS -> Motion transform -> GAS, depth should be 3
     const uint32_t max_traversal_depth = 2;
     OPTIX_CHECK(optixPipelineSetStackSize(
         state.pipeline, 
@@ -1042,18 +1014,18 @@ void createPipeline(OneWeekendState& state)
 }
 
 // -----------------------------------------------------------------------
-// Shader binding tableの構築
+// Construction of shader binding table
 // -----------------------------------------------------------------------
 void createSBT(OneWeekendState& state, const std::vector<std::pair<ShapeType, HitGroupData>>& hitgroup_datas)
 {
     // Ray generation 
     RayGenRecord raygen_record = {};
-    // RayGenRecordの領域をデバイス側に確保
+    // Allocate RayGenRecord area on the device side
     CUdeviceptr d_raygen_record;
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_raygen_record), sizeof(RayGenRecord)));
-    // SBT recordのヘッダーをプログラムを使って埋める
+    // Fill SBT record headers programmatically
     OPTIX_CHECK(optixSbtRecordPackHeader(state.raygen_prg, &raygen_record));
-    // RayGenRecordをデバイス側にコピー
+    // Copy RayGenRecord to device side
     CUDA_CHECK(cudaMemcpy(
         reinterpret_cast<void*>(d_raygen_record),
         &raygen_record,
@@ -1063,14 +1035,14 @@ void createSBT(OneWeekendState& state, const std::vector<std::pair<ShapeType, Hi
 
     // Miss
     MissRecord miss_record = {};
-    // MissRecordの領域をデバイス側に確保
+    // Allocate space for MissRecord on the device side
     CUdeviceptr d_miss_record;
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_miss_record), sizeof(MissRecord)));
-    // SBT recordのヘッダーをプログラムを使って埋める
+    // Fill SBT record headers programmatically
     OPTIX_CHECK(optixSbtRecordPackHeader(state.miss_prg, &miss_record));
-    // データを設定
+    // set data
     miss_record.data.bg_color = make_float4(0.0f);
-    // MissRecordをデバイス側にコピー
+    // Copy MissRecord to device side
     CUDA_CHECK(cudaMemcpy(
         reinterpret_cast<void*>(d_miss_record),
         &miss_record,
@@ -1080,25 +1052,25 @@ void createSBT(OneWeekendState& state, const std::vector<std::pair<ShapeType, Hi
 
     // HitGroup
     HitGroupRecord* hitgroup_records = new HitGroupRecord[hitgroup_datas.size()];
-    // HitGroupRecord用の領域をデバイス側に確保
+    // Allocate an area for HitGroupRecord on the device side
     CUdeviceptr d_hitgroup_records;
     const size_t hitgroup_record_size = sizeof(HitGroupRecord) * hitgroup_datas.size();
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_hitgroup_records), hitgroup_record_size));
 
-    // HitGroupDataからShader binding tableを構築
+    // Build Shader binding table from HitGroupData
     for (size_t i = 0; i < hitgroup_datas.size(); i++)
     {
         ShapeType type = hitgroup_datas[i].first;
         HitGroupData data = hitgroup_datas[i].second;
-        // ShapeTypeに応じてヘッダーを埋めるためのプログラムを切り替える
+        // switch the program for filling the header depending on the ShapeType
         if (type == ShapeType::Mesh)
             OPTIX_CHECK(optixSbtRecordPackHeader(state.mesh_hitgroup_prg, &hitgroup_records[i]));
         else if (type == ShapeType::Sphere)
             OPTIX_CHECK(optixSbtRecordPackHeader(state.sphere_hitgroup_prg, &hitgroup_records[i]));
-        // データを設定
+        // set data
         hitgroup_records[i].data = data;
     }
-    // HitGroupRecordをデバイス側にコピー
+    // Copy HitGroupRecord to device
     CUDA_CHECK(cudaMemcpy(
         reinterpret_cast<void*>(d_hitgroup_records),
         hitgroup_records,
@@ -1106,11 +1078,11 @@ void createSBT(OneWeekendState& state, const std::vector<std::pair<ShapeType, Hi
         cudaMemcpyHostToDevice
     ));
 
-    // 今回はCallable プログラムのShader binding tableへのデータ登録は必要ないので、
-    // EmptyRecordを使って空データをコピーする。
-    // ただし、データがない場合でもヘッダーをプログラムで埋める必要がある。
-    // ここを忘れるとレイトレーシング起動後にInvalid memory accessが起きる
-    // デバッグで気づきづらい点なので要注意
+    // Since it is not necessary to register data in the Shader binding table of the Callable program this time,
+    // Copy empty data using EmptyRecord.
+    // However, the header must be filled programmatically even if there is no data.
+    // If you forget this, Invalid memory access will occur after starting raytracing.
+    // It is difficult to notice in debugging, so be careful
     EmptyRecord* callables_records = new EmptyRecord[5];
     CUdeviceptr d_callables_records;
     const size_t callables_record_size = sizeof(EmptyRecord) * 5;
@@ -1129,8 +1101,8 @@ void createSBT(OneWeekendState& state, const std::vector<std::pair<ShapeType, Hi
         cudaMemcpyHostToDevice
     ));
 
-    // 各recordからShader binding tableを構築
-    // ここではrecord配列の先頭へのポインタと、shader binding tableのアラインメント、配列数を設定する
+    // Build Shader binding table from each record
+    // Here, set the pointer to the beginning of the record array, the alignment of the shader binding table, and the number of arrays
     state.sbt.raygenRecord = d_raygen_record;
     state.sbt.missRecordBase = d_miss_record;
     state.sbt.missRecordStrideInBytes = static_cast<uint32_t>(sizeof(MissRecord));
@@ -1163,7 +1135,7 @@ void finalizeState(OneWeekendState& state)
 }
 
 // -----------------------------------------------------------------------
-// デバイス上にデータをコピーして、そのポインタを汎用ポインタで返す
+// copy the data on the device and return the pointer as a generic pointer
 // -----------------------------------------------------------------------
 template <typename T>
 void* copyDataToDevice(T data, size_t size)
@@ -1181,37 +1153,37 @@ void* copyDataToDevice(T data, size_t size)
 // -----------------------------------------------------------------------
 void createScene(OneWeekendState& state)
 {
-    // HitGroupDataとマテリアルデータを格納する配列
-    // 今回の場合は、球・メッシュではそれぞれでジオメトリ用のデータは同じ配列を使用し、
-    // デバイス側でのoptixGetPrimitiveIndex()で交差するデータを切り替えて
-    // マテリアルデータは異なるデータが振り分けられている方式をとっている。
-    // そのため、hitgroup_datasの数はmaterialsの数に合わせる 
-    // <- マテリアルの分だけHitGroupRecordがあれば十分でジオメトリの数用意する必要はない
+    // An array containing HitGroupData and material data
+    // In this case, the sphere and mesh each use the same array for geometry data,
+    // Switch intersecting data with optixGetPrimitiveIndex() on the device side
+    // The material data adopts a method in which different data are distributed.
+    // So, match the number of hitgroup_datas to the number of materials
+    // <- It is enough to have HitGroupRecords for the number of materials, so there is no need to prepare the number of geometries
     std::vector<std::pair<ShapeType, HitGroupData>> hitgroup_datas;
     std::vector<Material> materials;
 
     // --------------------------------------------------------------------
-    // 球体のシーン構築
-    // 球体は全て異なるマテリアルを持っていることとする
+    // sphere scene building
+    // Assume that the spheres all have different materials
     // --------------------------------------------------------------------
-    // 球体用のデータ準備
+    // Data preparation for sphere
     std::vector<SphereData> spheres;
-    // 球体用の相対的なsbt_indexの配列
+    // Array of relative sbt_indexes for spheres
     std::vector<uint32_t> sphere_sbt_indices;
     uint32_t sphere_sbt_index = 0;
 
     // Ground
     SphereData ground_sphere{ make_float3(0, -1000, 0), 1000 };
     spheres.emplace_back(ground_sphere);
-    // テクスチャ
+    // texture
     CheckerData ground_checker{ make_float4(1.0f), make_float4(0.2f, 0.5f, 0.2f, 1.0f), 5000};
-    // Lambertianマテリアル
+    // Lambertian material
     LambertianData ground_lambert{ copyDataToDevice(ground_checker, sizeof(CheckerData)), state.checker_prg.id };
     materials.push_back(Material{ copyDataToDevice(ground_lambert, sizeof(LambertianData)), state.lambertian_prg.id });
-    // マテリアルを追加したのでsbt_indexも追加
+    // Added sbt_index because I added material
     sphere_sbt_indices.emplace_back(sphere_sbt_index++);
     
-    // 疑似乱数用のシード値を生成
+    // Generate Seed Value for Pseudorandom Numbers
     uint32_t seed = tea<4>(0, 0);
     for (int a = -11; a < 11; a++)
     {
@@ -1221,11 +1193,11 @@ void createScene(OneWeekendState& state)
             const float3 center{ a + 0.9f * rnd(seed), 0.2f, b + 0.9f * rnd(seed) };
             if (length(center - make_float3(4, 0.2, 0)) > 0.9f)
             {
-                // 球体を追加
+                // add sphere
                 spheres.emplace_back( SphereData { center, 0.2f });
 
-                // 確率的にLambertian、Metal、Dielectricマテリアルを作成
-                // 追加する際は型に応じたCallableプログラムIDを割り振る
+                // Probabilistically create Lambertian, Metal, and Dielectric materials
+                // Allocate a Callable program ID according to the type when adding
                 if (choose_mat < 0.8f)
                 {
                     // Lambertian
@@ -1273,18 +1245,18 @@ void createScene(OneWeekendState& state)
     materials.emplace_back(Material{ copyDataToDevice(material3, sizeof(MetalData)), state.metal_prg.id });
     sphere_sbt_indices.emplace_back(sphere_sbt_index++);
 
-    // Sphere用のGASを作成 (内部で同時にstate.d_sphere_dataへのデータコピーも行っている)
+    // Create GAS for Sphere (Data is also copied to state.d_sphere_data internally at the same time)
     GeometryAccelData sphere_gas;
     buildSphereGAS(state, sphere_gas, spheres, sphere_sbt_indices);
 
-    // マテリアルと球体データの配列からShader binding table用のデータを用意
+    // Prepare data for Shader binding table from array of material and sphere data
     for (auto& m : materials)
         hitgroup_datas.emplace_back(ShapeType::Sphere, HitGroupData{state.d_sphere_data, m});
 
     // --------------------------------------------------------------------
-    // メッシュののシーン構築
-    // メッシュでは100個の三角形に対して割り振るマテリアルは3種類のみ
-    // メッシュデータは全マテリアル共通なので、用意するSBT recordも3つのみでよい
+    // Mesh scene building
+    // Only 3 types of materials are allocated for 100 triangles in mesh
+    // Mesh data is common to all materials, so only 3 SBT records are required.
     // --------------------------------------------------------------------
     std::vector<float3> mesh_vertices;
     std::vector<uint3> mesh_indices;
@@ -1307,7 +1279,7 @@ void createScene(OneWeekendState& state)
     const uint32_t green_sbt_index = 1;
     const uint32_t blue_sbt_index = 2;
 
-    // ランダムで赤・緑・青の3色を割り振る
+    // Randomly assign three colors of red, green, and blue
     for (size_t i = 0; i < mesh_indices.size(); i++)
     {
         const float choose_rgb = rnd(seed);
@@ -1319,30 +1291,30 @@ void createScene(OneWeekendState& state)
             mesh_sbt_indices.push_back(blue_sbt_index);
     }
 
-    // メッシュ用のGASを作成
+    // Create gas for mesh
     GeometryAccelData mesh_gas;
     buildMeshGAS(state, mesh_gas, mesh_vertices, mesh_indices, mesh_sbt_indices);
 
-    // 赤・緑・青のマテリアルを用意し、HitGroupDataを追加
-    // 赤
+    // Prepare red, green and blue materials and add HitGroupData
+    // red
     ConstantData red{ {0.8f, 0.05f, 0.05f, 1.0f} };
     LambertianData red_lambert{ copyDataToDevice(red, sizeof(ConstantData)), state.constant_prg.id };
     materials.emplace_back(Material{ copyDataToDevice(red_lambert, sizeof(LambertianData)), state.lambertian_prg.id });
     hitgroup_datas.emplace_back(ShapeType::Mesh, HitGroupData{ state.d_mesh_data, materials.back() });
 
-    // 緑
+    // green
     ConstantData green{ {0.05f, 0.8f, 0.05f, 1.0f} };
     LambertianData green_lambert{ copyDataToDevice(green, sizeof(ConstantData)), state.constant_prg.id };
     materials.emplace_back(Material{ copyDataToDevice(green_lambert, sizeof(LambertianData)), state.lambertian_prg.id });
     hitgroup_datas.emplace_back(ShapeType::Mesh, HitGroupData{ state.d_mesh_data, materials.back() });
 
-    // 青
+    // blue
     ConstantData blue{ {0.05f, 0.05f, 0.8f, 1.0f} };
     LambertianData blue_lambert{ copyDataToDevice(blue, sizeof(ConstantData)), state.constant_prg.id };
     materials.emplace_back(Material{ copyDataToDevice(blue_lambert, sizeof(LambertianData)), state.lambertian_prg.id });
     hitgroup_datas.emplace_back(ShapeType::Mesh, HitGroupData{ state.d_mesh_data, materials.back() });
 
-    // IAS用のInstanceを球体用・メッシュ用それぞれ作成
+    // Create Instance for IAS for sphere and mesh
     std::vector<OptixInstance> instances;
     uint32_t flags = OPTIX_INSTANCE_FLAG_NONE;
 
@@ -1355,7 +1327,7 @@ void createScene(OneWeekendState& state)
 
     sbt_offset += sphere_gas.num_sbt_records;
     instance_id++;
-    // メッシュの方はY軸中心にPI/6だけ回転させる
+    // Rotate the mesh by PI/6 around the Y axis
     const float c = cosf(M_PIf / 6.0f);
     const float s = sinf(M_PIf / 6.0f);
     instances.push_back(OptixInstance{
@@ -1363,10 +1335,10 @@ void createScene(OneWeekendState& state)
         flags, mesh_gas.handle, {0, 0}
     });
 
-    // IASの作成
+    // create IAS
     buildIAS(state, state.ias, instances);
 
-    // Shader binding tableの作成
+    // create shader binding table
     createSBT(state, hitgroup_datas);
 }
 

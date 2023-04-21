@@ -1,3 +1,30 @@
+//
+// Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions
+// are met:
+//  * Redistributions of source code must retain the above copyright
+//    notice, this list of conditions and the following disclaimer.
+//  * Redistributions in binary form must reproduce the above copyright
+//    notice, this list of conditions and the following disclaimer in the
+//    documentation and/or other materials provided with the distribution.
+//  * Neither the name of NVIDIA CORPORATION nor the names of its
+//    contributors may be used to endorse or promote products derived
+//    from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+// EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+// PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+// CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+// EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+// PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+// PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+// OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+//
 #include <optix.h>
 
 #include "optixInOneWeekend.h"
@@ -13,25 +40,25 @@ __constant__ Params params;
 
 struct SurfaceInfo
 {
-    // 発光度
+    // luminous intensity
     float3 emission;
-    // 物体表面の色
+    // object surface color
     float3 albedo;
-    // 衝突位置
+    // Collision position
     float3 p;
-    // レイの方向
+    // ray direction
     float3 direction;
-    // 法線
+    // Normal
     float3 n;
-    // テクスチャ座標
+    // texture coordinates
     float2 texcoord;
 
-    // 乱数のシード値
+    // random number seed
     unsigned int seed;
-    // 光線追跡を終了するか否か
+    // whether to end ray tracing
     int trace_terminate;
 
-    // マテリアル用のデータとCallablesプログラムのID
+    // Data for Materials and Callables Program IDs
     Material material;
 };
 
@@ -48,7 +75,7 @@ static __forceinline__ __device__ void* unpackPointer( unsigned int i0, unsigned
     return ptr;
 }
 
-// ポインタをunsigned long longに変換してから、前側32bitをi0に、後側32bitをi1に格納する
+// After converting the pointer to unsigned long long, store the front 32 bits in i0 and the rear 32 bits in i1
 static __forceinline__ __device__ void  packPointer( void* ptr, unsigned int& i0, unsigned int& i1 )
 {
     const unsigned long long uptr = reinterpret_cast<unsigned long long>( ptr );
@@ -56,7 +83,7 @@ static __forceinline__ __device__ void  packPointer( void* ptr, unsigned int& i0
     i1 = uptr & 0x00000000ffffffff;
 }
 
-// 0番目と1番目のペイロードにパックされているSurfaceInfoのポインタを取得
+// Get pointer of SurfaceInfo packed in 0th and 1st payload
 static __forceinline__ __device__ SurfaceInfo* getSurfaceInfo()
 {
     const unsigned int u0 = optixGetPayload_0();
@@ -112,7 +139,7 @@ static __forceinline__ __device__ void trace(
         SurfaceInfo*           si
         )
 {
-    // SurfaceInfoのポインタを2つのペイロードにパックする
+    // pack the SurfaceInfo pointer into two payloads
     unsigned int u0, u1;
     packPointer( si, u0, u1 );
     optixTrace(
@@ -145,7 +172,6 @@ extern "C" __global__ void __raygen__pinhole()
         printf("############################################\n");
     }
 
-
     const int w = params.width; 
     const int h = params.height;
     const float3 eye = params.eye;
@@ -156,7 +182,7 @@ extern "C" __global__ void __raygen__pinhole()
     const int subframe_index = params.subframe_index;
     const int samples_per_launch = params.samples_per_launch;
 
-    // 現在のスレッドIDから乱数用のシード値を生成
+    // Generate seed value for random number from current thread id
     unsigned int seed = tea<4>(idx.y * w + idx.x, subframe_index);
 
     float3 result = make_float3(0.0f);
@@ -169,7 +195,7 @@ extern "C" __global__ void __raygen__pinhole()
             ((float)idx.y + subpixel_jitter.y) / (float)h
         ) - 1.0f;
 
-        // 光線の向きと原点を設定
+        // Set ray direction and origin
         float3 ray_direction = normalize(d.x * U + d.y * V + W);
         float3 ray_origin = eye;
 
@@ -187,7 +213,7 @@ extern "C" __global__ void __raygen__pinhole()
             if (depth >= params.max_depth)
                 break;
 
-            // IASに対してレイトレース
+            // Raytrace against IAS
             trace(params.handle, ray_origin, ray_direction, 0.01f, 1e16f, &si);
 
             if (si.trace_terminate) {
@@ -195,7 +221,7 @@ extern "C" __global__ void __raygen__pinhole()
                 break;
             }
 
-            // Direct callable関数を使って各マテリアルにおける散乱方向とマテリアルの色を計算
+            // Calculate the scattering direction and material color for each material using Direct callable functions
             float3 scattered;
             optixDirectCall<void, SurfaceInfo*, void*, float3&>(
                 si.material.prg_id, &si, si.material.data, scattered
@@ -219,7 +245,7 @@ extern "C" __global__ void __raygen__pinhole()
         const float3 accum_color_prev = make_float3(params.accum_buffer[image_index]);
         accum_color = lerp(accum_color_prev, accum_color, a);
     }
-    // 取得した輝度値を出力バッファに書き込む
+    // Write the obtained luminance value to the output buffer
     params.accum_buffer[image_index] = make_float4(accum_color, 1.0f);
     params.frame_buffer[image_index] = make_color(accum_color);
 }
@@ -230,7 +256,7 @@ extern "C" __global__ void __miss__radiance()
 
     SurfaceInfo* si = getSurfaceInfo();
 
-    // ベクトルのy成分から背景色を計算
+    // Calculate background color from y component of vector
     const float3 unit_direction = normalize(optixGetWorldRayDirection());
     const float t = 0.5f * (unit_direction.y + 1.0f);
     si->emission = (1.0f - t) * make_float3(1.0f) + t * make_float3(0.5f, 0.7f, 1.0f);
@@ -239,7 +265,7 @@ extern "C" __global__ void __miss__radiance()
 
 extern "C" __global__ void __closesthit__mesh()
 {
-    // Shader binding tableからデータを取得
+    // Get data from shader binding table
     HitGroupData* data = (HitGroupData*)optixGetSbtDataPointer();
     const MeshData* mesh_data = (MeshData*)data->shape_data;
 
@@ -247,49 +273,49 @@ extern "C" __global__ void __closesthit__mesh()
     const float3 direction         = optixGetWorldRayDirection();
     const uint3 index = mesh_data->indices[prim_idx];
 
-    // 三角形の重心座標(u,v)を三角形のテクスチャ座標とする
+    // Let the barycentric coordinates (u,v) of the triangle be the texture coordinates of the triangle
     const float2 texcoord = optixGetTriangleBarycentrics();
 
-    // メッシュデータから頂点を取得し、法線計算
+    // Get vertices from mesh data and calculate normals
     const float3 v0   = mesh_data->vertices[ index.x ];
     const float3 v1   = mesh_data->vertices[ index.y ];
     const float3 v2   = mesh_data->vertices[ index.z ];
     const float3 N  = normalize( cross( v1-v0, v2-v0 ) );
 
-    // レイと三角形の交点を計算
+    // Calculate intersection of ray and triangle
     const float3 P    = optixGetWorldRayOrigin() + optixGetRayTmax()*direction;
 
-    // PayloadからSurfaceInfoのポインタを取得し、交点上の情報を格納
+    // Get SurfaceInfo pointer from payload and store information on intersection
     SurfaceInfo* si = getSurfaceInfo();
 
-    // SurfaceInfoに交点における情報を格納する
+    // store the information at the intersection in SurfaceInfo
     si->p = P;
     si->direction = direction;
     si->n = N;
     si->texcoord = texcoord;
-    // HitGroupDataに紐付いているマテリアル情報をSurfaceInfoに紐付ける
+    // Link the material information linked to HitGroupData to SurfaceInfo
     si->material = data->material;
 }
 
 extern "C" __global__ void __intersection__sphere()
 {
-    // Shader binding tableからデータを取得
+    // Get data from shader binding table
     HitGroupData* data = (HitGroupData*)optixGetSbtDataPointer();
-    // AABBとの交差判定が認められた球体のGAS内のIDを取得
+    // Get the ID in GAS of the sphere that has been recognized to intersect with AABB
     const int prim_idx = optixGetPrimitiveIndex();
     const SphereData sphere_data = ((SphereData*)data->shape_data)[prim_idx];
 
     const float3 center = sphere_data.center;
     const float radius = sphere_data.radius;
 
-    // オブジェクト空間におけるレイの原点と方向を取得
+    // Get ray origin and direction in object space
     const float3 origin = optixGetObjectRayOrigin();
     const float3 direction = optixGetObjectRayDirection();
-    // レイの最小距離と最大距離を取得
+    // Get ray min and max distance
     const float tmin = optixGetRayTmin();
     const float tmax = optixGetRayTmax();
 
-    // 球体との交差判定処理（判別式を解いて、距離tを計算)
+    // Intersection judgment processing with a sphere (solve the discriminant and calculate the distance t)
     const float3 oc = origin - center;
     const float a = dot(direction, direction);
     const float half_b = dot(oc, direction);
@@ -308,17 +334,17 @@ extern "C" __global__ void __intersection__sphere()
             return;
     }
 
-    // オブジェクト空間におけるレイと球の交点を計算
+    // Calculate intersection of ray and sphere in object space
     const float3 P = origin + root * direction;
     const float3 normal = (P - center) / radius;
 
-    // 球体におけるテクスチャ座標を算出 (Z up)と仮定して、xとyから方位角、zから仰角を計算
+    // Assuming texture coordinates on the sphere (Z up), calculate azimuth from x and y and elevation from z
     float phi = atan2(normal.y, normal.x);
     if (phi < 0) phi += 2.0f * M_PIf;
     const float theta = acosf(normal.z);
     const float2 texcoord = make_float2(phi / (2.0f * M_PIf), theta / M_PIf);
 
-    // レイと球の交差判定を認める
+    // Allow ray-sphere intersection detection
     optixReportIntersection(root, 0, 
         __float_as_int(normal.x), __float_as_int(normal.y), __float_as_int(normal.z),
         __float_as_int(texcoord.x), __float_as_int(texcoord.y)
@@ -327,36 +353,36 @@ extern "C" __global__ void __intersection__sphere()
 
 extern "C" __global__ void __closesthit__sphere()
 {
-    // Shader binding tableからデータを取得
+    // Get data from shader binding table
     HitGroupData* data = (HitGroupData*)optixGetSbtDataPointer();
 
-    // 0 - 2番目のAttributeからIntersectionプログラムで計算した法線を取得
+    // 0 - Get the normal computed by the Intersection program from the second Attribute
     const float3 local_n = make_float3(
         __int_as_float(optixGetAttribute_0()),
         __int_as_float(optixGetAttribute_1()),
         __int_as_float(optixGetAttribute_2())
     );
-    // Instanceに紐付いている行列からオブジェクト空間における法線をグローバル空間にマップする
+    // Map the normal in object space from the matrix associated with Instance to global space
     const float3 world_n = normalize(optixTransformNormalFromObjectToWorldSpace(local_n));
 
-    // 3 - 4番目のAttributeからテクスチャ座標を取得
+    // 3 - Get texture coordinates from the 4th Attribute
     const float2 texcoord = make_float2(
         __int_as_float(optixGetAttribute_3()),
         __int_as_float(optixGetAttribute_4())
     );
 
-    // グローバル空間におけるレイの原点と方向を計算し、交点座標の位置を計算
+    // Calculate the origin and direction of the ray in global space, and calculate the position of the intersection coordinates
     const float3 origin = optixGetWorldRayOrigin();
     const float3 direction = optixGetWorldRayDirection();
     const float3 P = origin + optixGetRayTmax() * direction;
 
-    // PayloadからSurfaceInfoのポインタを取得し、交点上の情報を格納
+    // Get SurfaceInfo pointer from payload and store information on intersection
     SurfaceInfo* si = getSurfaceInfo();
     si->p = P;
     si->n = world_n;
     si->direction = direction;
     si->texcoord = texcoord;
-    // HitGroupDataに紐付いているマテリアル情報をSurfaceInfoに紐付ける
+    // Link the material information linked to HitGroupData to SurfaceInfo
     si->material = data->material;
 }
 
@@ -364,7 +390,7 @@ extern "C" __device__ void __direct_callable__lambertian(SurfaceInfo* si, void* 
 {
     const LambertianData* lambertian = (LambertianData*)material_data;
 
-    // Direct callableプログラムによって、テクスチャ色を取得
+    // Get texture color by direct callable program
     const float4 color = optixDirectCall<float4, SurfaceInfo*, void*>(
         lambertian->texture_prg_id, si, lambertian->texture_data
         );
@@ -382,7 +408,7 @@ extern "C" __device__ void __direct_callable__lambertian(SurfaceInfo* si, void* 
 extern "C" __device__ void __direct_callable__dielectric(SurfaceInfo* si, void* material_data, float3& scattered)
 {
     const DielectricData* dielectric = (DielectricData*)material_data;
-    // Direct callableプログラムによって、テクスチャ色を取得
+    // Get texture color by direct callable program
     const float4 color = optixDirectCall<float4, SurfaceInfo*, void*>(
         dielectric->texture_prg_id, si, dielectric->texture_data
         );
@@ -414,7 +440,7 @@ extern "C" __device__ void __direct_callable__dielectric(SurfaceInfo* si, void* 
 extern "C" __device__ void __direct_callable__metal(SurfaceInfo* si, void* material_data, float3& scattered)
 {
     const MetalData* metal = (MetalData*)material_data;
-    // Direct callableプログラムによって、テクスチャ色を取得
+    // Get texture color by direct callable program
     const float4 color = optixDirectCall<float4, SurfaceInfo*, void*>(
         metal->texture_prg_id, si, metal->texture_data
         );
