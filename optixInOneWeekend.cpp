@@ -1,30 +1,3 @@
-//
-// Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions
-// are met:
-//  * Redistributions of source code must retain the above copyright
-//    notice, this list of conditions and the following disclaimer.
-//  * Redistributions in binary form must reproduce the above copyright
-//    notice, this list of conditions and the following disclaimer in the
-//    documentation and/or other materials provided with the distribution.
-//  * Neither the name of NVIDIA CORPORATION nor the names of its
-//    contributors may be used to endorse or promote products derived
-//    from this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
-// EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-// PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
-// CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-// EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
-// PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
-// PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
-// OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
 
 // <<glad/glad.h> must be included before gl_interop
 #include <glad/glad.h> 
@@ -157,8 +130,7 @@ struct OneWeekendState
 
     // HitGroup program for spheres
     OptixProgramGroup           sphere_hitgroup_prg      = nullptr;
-    // HitGroup program for mesh
-    OptixProgramGroup           mesh_hitgroup_prg        = nullptr;
+    
 
     // Callable program for materials
     // OptiX supports derived class function calls (polymorphism) through base class pointers.
@@ -554,85 +526,7 @@ void buildGAS( OneWeekendState& state, GeometryAccelData& gas, OptixBuildInput& 
     }
 }
 
-// -----------------------------------------------------------------------
-// build GAS for mesh
-// Also copy data to device side pointer (state.d_mesh_data) at the same time
-// -----------------------------------------------------------------------
-void buildMeshGAS(
-    OneWeekendState& state, 
-    GeometryAccelData& gas,
-    const std::vector<float3>& vertices, 
-    const std::vector<uint3>& indices, 
-    const std::vector<uint32_t>& sbt_indices
-)
-{
-    // Copy the vertex information that makes up the mesh to the GPU
-    CUdeviceptr d_vertices = 0;
-    const size_t vertices_size = vertices.size() * sizeof(float3);
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_vertices), vertices_size));
-    CUDA_CHECK(cudaMemcpy(
-        reinterpret_cast<void*>(d_vertices), 
-        vertices.data(), vertices_size, 
-        cudaMemcpyHostToDevice
-    ));
 
-    // Copy index information that defines how to connect vertices to GPU
-    CUdeviceptr d_indices = 0;
-    const size_t indices_size = indices.size() * sizeof(uint3);
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_indices), indices_size));
-    CUDA_CHECK(cudaMemcpy(
-        reinterpret_cast<void*>(d_indices),
-        indices.data(), indices_size, 
-        cudaMemcpyHostToDevice 
-    ));
-    
-    // Store mesh data in structure and copy to GPU
-    MeshData mesh_data{reinterpret_cast<float3*>(d_vertices), reinterpret_cast<uint3*>(d_indices) };
-    CUDA_CHECK(cudaMalloc(&state.d_mesh_data, sizeof(MeshData)));
-    CUDA_CHECK(cudaMemcpy(
-        state.d_mesh_data, &mesh_data, sizeof(MeshData), cudaMemcpyHostToDevice
-    ));
-
-    // Copy array of sbt indices relative to Instance sbt offset to GPU
-    CUdeviceptr d_sbt_indices = 0;
-    const size_t sbt_indices_size = sbt_indices.size() * sizeof(uint32_t);
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_sbt_indices), sbt_indices_size));
-    CUDA_CHECK(cudaMemcpy(
-        reinterpret_cast<void**>(d_sbt_indices),
-        sbt_indices.data(), sbt_indices_size,
-        cudaMemcpyHostToDevice
-    ));
-
-    // Count the number of unique sbt_indexes
-    uint32_t num_sbt_records = getNumSbtRecords(sbt_indices);
-    gas.num_sbt_records = num_sbt_records;
-
-    // Set flags for sbt_index with no duplication
-    // Set to FLAG_NONE or FLAG_REQUIRE_SINGLE_ANYHIT_CALL if you want to use the Anyhit program
-    uint32_t* input_flags = new uint32_t[num_sbt_records];
-    for (uint32_t i = 0; i < num_sbt_records; i++)
-        input_flags[i] = OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT;
-
-    // Set mesh vertex information, index buffer, SBT record index array to build input
-    // Note that num_sbt_records is the number of SBT records, not the number of triangles.
-    OptixBuildInput mesh_input = {};
-    mesh_input.type = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
-    mesh_input.triangleArray.vertexFormat = OPTIX_VERTEX_FORMAT_FLOAT3;
-    mesh_input.triangleArray.vertexStrideInBytes = sizeof(float3);
-    mesh_input.triangleArray.numVertices = static_cast<uint32_t>(vertices.size());
-    mesh_input.triangleArray.vertexBuffers = &d_vertices;
-    mesh_input.triangleArray.flags = input_flags;
-    mesh_input.triangleArray.indexFormat = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;
-    mesh_input.triangleArray.indexStrideInBytes = sizeof(uint3);
-    mesh_input.triangleArray.indexBuffer = d_indices;
-    mesh_input.triangleArray.numIndexTriplets = static_cast<uint32_t>(indices.size());
-    mesh_input.triangleArray.numSbtRecords = num_sbt_records;
-    mesh_input.triangleArray.sbtIndexOffsetBuffer = d_sbt_indices;
-    mesh_input.triangleArray.sbtIndexOffsetSizeInBytes = sizeof(uint32_t);
-    mesh_input.triangleArray.sbtIndexOffsetStrideInBytes = sizeof(uint32_t);
-
-    buildGAS(state, gas, mesh_input);
-}
 
 // -----------------------------------------------------------------------
 // Building GAS for Sphere
@@ -911,19 +805,7 @@ void createProgramGroups(OneWeekendState& state)
     {
         // Mesh
         OptixProgramGroupDesc hitgroup_prg_desc = {};
-        hitgroup_prg_desc.kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
-        hitgroup_prg_desc.hitgroup.moduleCH = state.module;
-        hitgroup_prg_desc.hitgroup.entryFunctionNameCH = "__closesthit__mesh";
-        sizeof_log = sizeof(log);
-        OPTIX_CHECK_LOG(optixProgramGroupCreate(
-            state.context,
-            &hitgroup_prg_desc,
-            1,
-            &prg_options,
-            log,
-            &sizeof_log,
-            &state.mesh_hitgroup_prg
-        ));
+        
 
         // Sphere
         memset(&hitgroup_prg_desc, 0, sizeof(OptixProgramGroupDesc));
@@ -973,7 +855,6 @@ void createPipeline(OneWeekendState& state)
     {
         state.raygen_prg, 
         state.miss_prg, 
-        state.mesh_hitgroup_prg, 
         state.sphere_hitgroup_prg, 
         state.lambertian_prg.program, 
         state.dielectric_prg.program,
@@ -1004,7 +885,6 @@ void createPipeline(OneWeekendState& state)
     OptixStackSizes stack_sizes = {};
     OPTIX_CHECK(optixUtilAccumulateStackSizes(state.raygen_prg, &stack_sizes));
     OPTIX_CHECK(optixUtilAccumulateStackSizes(state.miss_prg, &stack_sizes));
-    OPTIX_CHECK(optixUtilAccumulateStackSizes(state.mesh_hitgroup_prg, &stack_sizes));
     OPTIX_CHECK(optixUtilAccumulateStackSizes(state.sphere_hitgroup_prg, &stack_sizes));
     OPTIX_CHECK(optixUtilAccumulateStackSizes(state.lambertian_prg.program, &stack_sizes));
     OPTIX_CHECK(optixUtilAccumulateStackSizes(state.dielectric_prg.program, &stack_sizes));
@@ -1093,9 +973,8 @@ void createSBT(OneWeekendState& state, const std::vector<std::pair<ShapeType, Hi
         ShapeType type = hitgroup_datas[i].first;
         HitGroupData data = hitgroup_datas[i].second;
         // switch the program for filling the header depending on the ShapeType
-        if (type == ShapeType::Mesh)
-            OPTIX_CHECK(optixSbtRecordPackHeader(state.mesh_hitgroup_prg, &hitgroup_records[i]));
-        else if (type == ShapeType::Sphere)
+        
+        if (type == ShapeType::Sphere)
             OPTIX_CHECK(optixSbtRecordPackHeader(state.sphere_hitgroup_prg, &hitgroup_records[i]));
         // set data
         hitgroup_records[i].data = data;
@@ -1151,7 +1030,6 @@ void finalizeState(OneWeekendState& state)
     OPTIX_CHECK(optixPipelineDestroy(state.pipeline));
     OPTIX_CHECK(optixProgramGroupDestroy(state.raygen_prg));
     OPTIX_CHECK(optixProgramGroupDestroy(state.miss_prg));
-    OPTIX_CHECK(optixProgramGroupDestroy(state.mesh_hitgroup_prg));
     OPTIX_CHECK(optixProgramGroupDestroy(state.sphere_hitgroup_prg));
     OPTIX_CHECK(optixProgramGroupDestroy(state.lambertian_prg.program));
     OPTIX_CHECK(optixProgramGroupDestroy(state.dielectric_prg.program));
@@ -1203,7 +1081,7 @@ void createScene(OneWeekendState& state)
     uint32_t sphere_sbt_index = 0;
 
     // Ground
-    SphereData ground_sphere{ make_float3(0, -1000, 0), 1000 };
+    SphereData ground_sphere{ make_float3(0, -10, 0), 10 };
     spheres.emplace_back(ground_sphere);
     // texture
     CheckerData ground_checker{ make_float4(1.0f), make_float4(0.2f, 0.5f, 0.2f, 1.0f), 5000};
@@ -1212,67 +1090,36 @@ void createScene(OneWeekendState& state)
     materials.push_back(Material{ copyDataToDevice(ground_lambert, sizeof(LambertianData)), state.lambertian_prg.id });
     // Added sbt_index because I added material
     sphere_sbt_indices.emplace_back(sphere_sbt_index++);
-    
-    // Generate Seed Value for Pseudorandom Numbers
-    uint32_t seed = tea<4>(0, 0);
-    for (int a = -11; a < 11; a++)
-    {
-        for (int b = -11; b < 11; b++)
-        {
-            const float choose_mat = rnd(seed);
-            const float3 center{ a + 0.9f * rnd(seed), 0.2f, b + 0.9f * rnd(seed) };
-            if (length(center - make_float3(4, 0.2, 0)) > 0.9f)
-            {
-                // add sphere
-                spheres.emplace_back( SphereData { center, 0.2f });
 
-                // Probabilistically create Lambertian, Metal, and Dielectric materials
-                // Allocate a Callable program ID according to the type when adding
-                if (choose_mat < 0.8f)
-                {
-                    // Lambertian
-                    ConstantData albedo{ make_float4(rnd(seed), rnd(seed), rnd(seed), 1.0f) };
-                    LambertianData lambertian{ copyDataToDevice(albedo, sizeof(ConstantData)), state.constant_prg.id };
-                    materials.emplace_back(Material{ copyDataToDevice(lambertian, sizeof(LambertianData)), state.lambertian_prg.id });
-                }
-                else if (choose_mat < 0.95f)
-                {
-                    // Metal
-                    ConstantData albedo{ make_float4(0.5f + rnd(seed) * 0.5f) };
-                    MetalData metal{ copyDataToDevice(albedo, sizeof(ConstantData)), state.constant_prg.id, /* fuzz = */ rnd(seed) * 0.5f};
-                    materials.emplace_back(Material{ copyDataToDevice(metal, sizeof(MetalData)), state.metal_prg.id });
-                }
-                else
-                {
-                    // Dielectric
-                    ConstantData albedo{ make_float4(1.0f) };
-                    DielectricData glass{ copyDataToDevice(albedo, sizeof(ConstantData)), state.constant_prg.id, /* ior = */ 1.5f};
-                    materials.emplace_back(Material{ copyDataToDevice(glass, sizeof(DielectricData)), state.dielectric_prg.id });
-                }
-                sphere_sbt_indices.emplace_back(sphere_sbt_index++);
-            }
-        }
-    }
+     
+    
+    // for (int a = 0; a < 11; a++)
+    // {
+    //     for (int b = 0; b < 11; b++)
+    //     {
+    //         const float3 center{a, 0.2f, b };
+    //         spheres.emplace_back( SphereData { center, 0.2f });
+    //     }
+    // }
+
+    spheres.emplace_back(SphereData{ make_float3(0.0f, 1.0f, 0.0f), 1.0f });
+    spheres.emplace_back(SphereData{ make_float3(0.0f, 1.0f, 0.0f), 1.0f });
+    spheres.emplace_back(SphereData{ make_float3(0.0f, 1.0f, 0.0f), 1.0f });
+    spheres.emplace_back(SphereData{ make_float3(0.0f, 1.0f, 0.0f), 1.0f });
+    spheres.emplace_back(SphereData{ make_float3(0.0f, 1.0f, 0.0f), 1.0f });
+    spheres.emplace_back(SphereData{ make_float3(0.0f, 1.0f, 0.0f), 1.0f });
+    spheres.emplace_back(SphereData{ make_float3(0.0f, 1.0f, 0.0f), 1.0f });
+    spheres.emplace_back(SphereData{ make_float3(0.0f, 1.0f, 0.0f), 1.0f });
+    spheres.emplace_back(SphereData{ make_float3(0.0f, 1.0f, 0.0f), 1.0f });
+    spheres.emplace_back(SphereData{ make_float3(0.0f, 1.0f, 0.0f), 1.0f });
+    spheres.emplace_back(SphereData{ make_float3(0.0f, 1.0f, 0.0f), 1.0f });
+    
     
     // Dielectric
     spheres.emplace_back(SphereData{ make_float3(0.0f, 1.0f, 0.0f), 1.0f });
     ConstantData albedo1{ make_float4(1.0f) };
     DielectricData material1{ copyDataToDevice(albedo1, sizeof(ConstantData)), state.constant_prg.id, /* ior = */ 1.5f };
     materials.push_back(Material{ copyDataToDevice(material1, sizeof(DielectricData)), state.dielectric_prg.id });
-    sphere_sbt_indices.emplace_back(sphere_sbt_index++);
-
-    // Lambertian
-    spheres.emplace_back(SphereData{ make_float3(-4.0f, 1.0f, 0.0f), 1.0f });
-    ConstantData albedo2{ make_float4(0.4f, 0.2f, 0.1f, 1.0f) };
-    LambertianData material2{ copyDataToDevice(albedo2, sizeof(ConstantData)), state.constant_prg.id };
-    materials.push_back(Material{ copyDataToDevice(material2, sizeof(LambertianData)), state.lambertian_prg.id });
-    sphere_sbt_indices.emplace_back(sphere_sbt_index++);
-
-    // Metal
-    spheres.emplace_back(SphereData{ make_float3(4.0f, 1.0f, 0.0f), 1.0f });
-    ConstantData albedo3{ make_float4(0.7f, 0.6f, 0.5f, 1.0f) };
-    MetalData material3{ copyDataToDevice(albedo3, sizeof(ConstantData)), state.constant_prg.id };
-    materials.emplace_back(Material{ copyDataToDevice(material3, sizeof(MetalData)), state.metal_prg.id });
     sphere_sbt_indices.emplace_back(sphere_sbt_index++);
 
     // Create GAS for Sphere (Data is also copied to state.d_sphere_data internally at the same time)
@@ -1284,86 +1131,29 @@ void createScene(OneWeekendState& state)
         hitgroup_datas.emplace_back(ShapeType::Sphere, HitGroupData{state.d_sphere_data, m});
 
     // --------------------------------------------------------------------
-    // Mesh scene building
-    // Only 3 types of materials are allocated for 100 triangles in mesh
-    // Mesh data is common to all materials, so only 3 SBT records are required.
-    // --------------------------------------------------------------------
-    std::vector<float3> mesh_vertices;
-    std::vector<uint3> mesh_indices;
-    std::vector<uint32_t> mesh_sbt_indices;
-    uint32_t mesh_index = 0;
-    for (int a = 0; a < 100; a++) {
-        float3 center{rnd(seed) * 20.0f - 10.0f, 0.5f + rnd(seed) * 1.0f - 0.5f, rnd(seed) * 20.0f - 10.0f };
-        const float3 p0 = center + make_float3(rnd(seed) * 0.5f, -rnd(seed) * 0.5f, rnd(seed) * 0.5f - 0.25f);
-        const float3 p1 = center + make_float3(-rnd(seed) * 0.5f, -rnd(seed) * 0.5f, rnd(seed) * 0.5f - 0.25f);
-        const float3 p2 = center + make_float3(rnd(seed) * 0.25f, rnd(seed) * 0.5f, rnd(seed) * 0.5f - 0.25f);
-
-        mesh_vertices.emplace_back(p0);
-        mesh_vertices.emplace_back(p1);
-        mesh_vertices.emplace_back(p2);
-        mesh_indices.emplace_back(make_uint3(mesh_index + 0, mesh_index + 1, mesh_index + 2));
-        mesh_index += 3;
-    }
+    
 
     const uint32_t red_sbt_index = 0;
     const uint32_t green_sbt_index = 1;
     const uint32_t blue_sbt_index = 2;
 
-    // Randomly assign three colors of red, green, and blue
-    for (size_t i = 0; i < mesh_indices.size(); i++)
-    {
-        const float choose_rgb = rnd(seed);
-        if (choose_rgb < 0.33f)
-            mesh_sbt_indices.push_back(red_sbt_index);
-        else if (choose_rgb < 0.67f)
-            mesh_sbt_indices.push_back(green_sbt_index);
-        else
-            mesh_sbt_indices.push_back(blue_sbt_index);
-    }
-
-    // Create gas for mesh
-    GeometryAccelData mesh_gas;
-    buildMeshGAS(state, mesh_gas, mesh_vertices, mesh_indices, mesh_sbt_indices);
-
-    // Prepare red, green and blue materials and add HitGroupData
-    // red
-    ConstantData red{ {0.8f, 0.05f, 0.05f, 1.0f} };
-    LambertianData red_lambert{ copyDataToDevice(red, sizeof(ConstantData)), state.constant_prg.id };
-    materials.emplace_back(Material{ copyDataToDevice(red_lambert, sizeof(LambertianData)), state.lambertian_prg.id });
-    hitgroup_datas.emplace_back(ShapeType::Mesh, HitGroupData{ state.d_mesh_data, materials.back() });
-
-    // green
-    ConstantData green{ {0.05f, 0.8f, 0.05f, 1.0f} };
-    LambertianData green_lambert{ copyDataToDevice(green, sizeof(ConstantData)), state.constant_prg.id };
-    materials.emplace_back(Material{ copyDataToDevice(green_lambert, sizeof(LambertianData)), state.lambertian_prg.id });
-    hitgroup_datas.emplace_back(ShapeType::Mesh, HitGroupData{ state.d_mesh_data, materials.back() });
-
-    // blue
-    ConstantData blue{ {0.05f, 0.05f, 0.8f, 1.0f} };
-    LambertianData blue_lambert{ copyDataToDevice(blue, sizeof(ConstantData)), state.constant_prg.id };
-    materials.emplace_back(Material{ copyDataToDevice(blue_lambert, sizeof(LambertianData)), state.lambertian_prg.id });
-    hitgroup_datas.emplace_back(ShapeType::Mesh, HitGroupData{ state.d_mesh_data, materials.back() });
-
-    // Create Instance for IAS for sphere and mesh
+    
+    
     std::vector<OptixInstance> instances;
     uint32_t flags = OPTIX_INSTANCE_FLAG_NONE;
 
     uint32_t sbt_offset = 0;
     uint32_t instance_id = 0;
     instances.emplace_back(OptixInstance{
-        {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0}, instance_id, sbt_offset, 255, 
+        {1, 0, 0, 0,
+         0, 1, 0, 0,
+         0, 0, 1, 0}, instance_id, sbt_offset, 255, 
         flags, sphere_gas.handle, {0, 0}
     });
 
     sbt_offset += sphere_gas.num_sbt_records;
     instance_id++;
-    // Rotate the mesh by PI/6 around the Y axis
-    const float c = cosf(M_PIf / 6.0f);
-    const float s = sinf(M_PIf / 6.0f);
-    instances.push_back(OptixInstance{
-        {c, 0, s, 0, 0, 1, 0, 0, -s, 0, c, 0}, instance_id, sbt_offset, 255,
-        flags, mesh_gas.handle, {0, 0}
-    });
+   
 
     // create IAS
     buildIAS(state, state.ias, instances);
