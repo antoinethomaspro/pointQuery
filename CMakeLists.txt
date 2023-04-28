@@ -26,10 +26,10 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-OPTIX_add_sample_executable( optixInOneWeekend target_name
-  optixInOneWeekend.cu
-  optixInOneWeekend.cpp
-  optixInOneWeekend.h
+OPTIX_add_sample_executable( optixSphere target_name
+  optixSphere.cu
+  optixSphere.cpp
+  optixSphere.h
   OPTIONS -rdc true
   )
 
