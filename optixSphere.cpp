@@ -63,6 +63,7 @@ struct SbtRecord
 typedef SbtRecord<RayGenData>                 RayGenSbtRecord;
 typedef SbtRecord<MissData>                   MissSbtRecord;
 typedef SbtRecord<sphere::SphereHitGroupData> HitGroupSbtRecord; // a supprimer
+
 typedef SbtRecord<Sphere>                     HitGroupRecord;
 
 
@@ -94,8 +95,8 @@ static void context_log_cb( unsigned int level, const char* tag, const char* mes
 }
 
 const Sphere g_sphere = {
-    { 0.0f, 0.0f, 0.0f }, // center
-    0.001f                   // radius2   
+    { 0.5f, 0.0f, 0.0f }, // center
+    0.5f                   // radius2   
 };
 
 
@@ -171,32 +172,33 @@ int main( int argc, char* argv[] )
         }
 
 
-        //mon code
+        //mon code début
         //copy vertex and indices to the GPU
         std::vector<float3> vertex = {
-            {1.0f, 2.0f, 3.0f},
+            {0.0f, 0.0f, 0.0f},
             {4.0f, 5.0f, 6.0f},
             {7.0f, 8.0f, 9.0f}
                                 };
 
-        int indices[] = {0,1,3, 2,3,0,
-                     5,7,6, 5,6,4,
-                     0,4,5, 0,5,1,
-                     2,3,7, 2,7,6,
-                     1,5,7, 1,7,3,
-                     4,0,2, 4,2,6
-                     };
+        std::vector<int> index = {{0}};
 
         CUDABuffer vertexBuffer;
         CUDABuffer indexBuffer;
 
         sphere::SphereHitGroupData model;
 
-        
+        // upload the model to the device: the builder
+        vertexBuffer.alloc_and_upload(vertex);
+        indexBuffer.alloc_and_upload(index);
+
+        // create local variables, because we need a *pointer* to the
+        // device pointers (don't use it for now since our data for the intersection is stocked in the buffers)
+        CUdeviceptr d_vertices = vertexBuffer.d_pointer();
+        CUdeviceptr d_indices  = indexBuffer.d_pointer();
 
 
 
-        //mon code
+        //mon code fin
 
 
 
@@ -488,9 +490,10 @@ int main( int argc, char* argv[] )
             CUdeviceptr hitgroup_record;
             size_t      hitgroup_record_size = sizeof( HitGroupSbtRecord );
             CUDA_CHECK( cudaMalloc( reinterpret_cast<void**>( &hitgroup_record ), hitgroup_record_size ) );
-            HitGroupSbtRecord hg_sbt;
-            hg_sbt.data.sphere.center = { 0.0f, 0.0f, 0.0f };
-            hg_sbt.data.sphere.radius = 0.5f;
+            
+            HitGroupRecord hg_sbt;
+            hg_sbt.data.center = { 0.5f, 0.0f, 0.0f };
+            hg_sbt.data.radius = 0.5f;
             OPTIX_CHECK( optixSbtRecordPackHeader( hitgroup_prog_group, &hg_sbt ) );
             CUDA_CHECK( cudaMemcpy(
                         reinterpret_cast<void*>( hitgroup_record ),
@@ -499,16 +502,6 @@ int main( int argc, char* argv[] )
                         cudaMemcpyHostToDevice
                         ) );
 
-            HitGroupSbtRecord hg_sbt2;
-            hg_sbt2.data.sphere.center = { 0.0f, 0.0f, 0.0f };
-            hg_sbt2.data.sphere.radius = 0.5f;
-            OPTIX_CHECK( optixSbtRecordPackHeader( hitgroup_prog_group, &hg_sbt2 ) );
-            CUDA_CHECK( cudaMemcpy(
-                        reinterpret_cast<void*>( hitgroup_record ),
-                        &hg_sbt2,
-                        hitgroup_record_size,
-                        cudaMemcpyHostToDevice
-                        ) );
             
 
             sbt.raygenRecord                = raygen_record;
