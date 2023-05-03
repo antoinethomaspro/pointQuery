@@ -62,7 +62,9 @@ struct SbtRecord
 
 typedef SbtRecord<RayGenData>                 RayGenSbtRecord;
 typedef SbtRecord<MissData>                   MissSbtRecord;
-typedef SbtRecord<sphere::SphereHitGroupData> HitGroupSbtRecord;
+typedef SbtRecord<sphere::SphereHitGroupData> HitGroupSbtRecord; // a supprimer
+typedef SbtRecord<Sphere>                     HitGroupRecord;
+
 
 
 void configureCamera( sutil::Camera& cam, const uint32_t width, const uint32_t height )
@@ -89,6 +91,25 @@ static void context_log_cb( unsigned int level, const char* tag, const char* mes
 {
     std::cerr << "[" << std::setw( 2 ) << level << "][" << std::setw( 12 ) << tag << "]: "
     << message << "\n";
+}
+
+const Sphere g_sphere = {
+    { 0.0f, 0.0f, 0.0f }, // center
+    0.001f                   // radius2   
+};
+
+
+static void sphere_bound(float3 center, float radius, float result[6])
+{
+    OptixAabb *aabb = reinterpret_cast<OptixAabb*>(result);
+
+    float3 m_min = center - radius;
+    float3 m_max = center + radius;
+
+    *aabb = {
+        m_min.x, m_min.y, m_min.z,
+        m_max.x, m_max.y, m_max.z
+    };
 }
 
 
@@ -150,6 +171,7 @@ int main( int argc, char* argv[] )
         }
 
 
+        //mon code
         //copy vertex and indices to the GPU
         std::vector<float3> vertex = {
             {1.0f, 2.0f, 3.0f},
@@ -170,6 +192,12 @@ int main( int argc, char* argv[] )
 
         sphere::SphereHitGroupData model;
 
+        
+
+
+
+        //mon code
+
 
 
 
@@ -186,9 +214,17 @@ int main( int argc, char* argv[] )
             accel_options.buildFlags = OPTIX_BUILD_FLAG_ALLOW_COMPACTION;
             accel_options.operation  = OPTIX_BUILD_OPERATION_BUILD;
 
-            // AABB build input
-            OptixAabb   aabb = {-1.5f, -1.5f, -1.5f, 1.5f, 1.5f, 1.5f};
+            // AABB build input 
+            // OptixAabb   aabb = {-1.5f, -1.5f, -1.5f, 1.5f, 1.5f, 1.5f};
+            // CUdeviceptr d_aabb_buffer;
+
+            OptixAabb   aabb[1];
             CUdeviceptr d_aabb_buffer;
+
+            sphere_bound(
+                    g_sphere.center, g_sphere.radius,
+                    reinterpret_cast<float*>(&aabb[0]));
+
             CUDA_CHECK( cudaMalloc( reinterpret_cast<void**>( &d_aabb_buffer ), sizeof( OptixAabb ) ) );
             CUDA_CHECK( cudaMemcpy(
                         reinterpret_cast<void*>( d_aabb_buffer ),

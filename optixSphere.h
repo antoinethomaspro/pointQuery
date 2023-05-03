@@ -36,6 +36,11 @@ struct Params
     OptixTraversableHandle handle;
 };
 
+struct Sphere
+{
+	float3 	center;
+	float 	radius;
+};
 
 struct RayGenData
 {
