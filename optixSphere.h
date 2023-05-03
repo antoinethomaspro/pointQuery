@@ -42,6 +42,13 @@ struct Sphere
 	float 	radius;
 };
 
+struct SphereIndex {
+    float  radius;
+    float3 *vertex;
+    int    *index;
+
+  };
+
 struct RayGenData
 {
     float3 cam_eye;

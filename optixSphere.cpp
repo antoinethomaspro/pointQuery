@@ -62,9 +62,8 @@ struct SbtRecord
 
 typedef SbtRecord<RayGenData>                 RayGenSbtRecord;
 typedef SbtRecord<MissData>                   MissSbtRecord;
-typedef SbtRecord<sphere::SphereHitGroupData> HitGroupSbtRecord; // a supprimer
 
-typedef SbtRecord<Sphere>                     HitGroupRecord;
+typedef SbtRecord<SphereIndex>                     HitGroupRecord;
 
 
 
@@ -96,7 +95,7 @@ static void context_log_cb( unsigned int level, const char* tag, const char* mes
 
 const Sphere g_sphere = {
     { 0.5f, 0.0f, 0.0f }, // center
-    0.5f                   // radius2   
+    0.5f                  // radius  
 };
 
 
@@ -172,7 +171,7 @@ int main( int argc, char* argv[] )
         }
 
 
-        //mon code début
+        //data
         //copy vertex and indices to the GPU
         std::vector<float3> vertex = {
             {0.0f, 0.0f, 0.0f},
@@ -198,7 +197,7 @@ int main( int argc, char* argv[] )
 
 
 
-        //mon code fin
+        //data
 
 
 
@@ -330,18 +329,6 @@ int main( int argc, char* argv[] )
                         &sizeof_log,
                         &module
                         ) );
-
-            input = sutil::getInputData( nullptr, nullptr, "sphere.cu", inputSize );
-            OPTIX_CHECK_LOG( optixModuleCreateFromPTX(
-                        context,
-                        &module_compile_options,
-                        &pipeline_compile_options,
-                        input,
-                        inputSize,
-                        log,
-                        &sizeof_log,
-                        &sphere_module
-                        ) );
         }
 
         //
@@ -389,7 +376,7 @@ int main( int argc, char* argv[] )
             hitgroup_prog_group_desc.hitgroup.entryFunctionNameCH = "__closesthit__ch";
             hitgroup_prog_group_desc.hitgroup.moduleAH            = nullptr;
             hitgroup_prog_group_desc.hitgroup.entryFunctionNameAH = nullptr;
-            hitgroup_prog_group_desc.hitgroup.moduleIS            = sphere_module;
+            hitgroup_prog_group_desc.hitgroup.moduleIS            = module;
             hitgroup_prog_group_desc.hitgroup.entryFunctionNameIS = "__intersection__sphere";
             sizeof_log = sizeof( log );
             OPTIX_CHECK_LOG( optixProgramGroupCreate(
@@ -488,12 +475,14 @@ int main( int argc, char* argv[] )
 
             
             CUdeviceptr hitgroup_record;
-            size_t      hitgroup_record_size = sizeof( HitGroupSbtRecord );
+            size_t      hitgroup_record_size = sizeof( HitGroupRecord );
             CUDA_CHECK( cudaMalloc( reinterpret_cast<void**>( &hitgroup_record ), hitgroup_record_size ) );
             
             HitGroupRecord hg_sbt;
-            hg_sbt.data.center = { 0.5f, 0.0f, 0.0f };
-            hg_sbt.data.radius = 0.5f;
+            hg_sbt.data.radius = 1.5f;
+            hg_sbt.data.vertex = (float3*)vertexBuffer.d_pointer();
+            hg_sbt.data.index = (int*)indexBuffer.d_pointer();
+
             OPTIX_CHECK( optixSbtRecordPackHeader( hitgroup_prog_group, &hg_sbt ) );
             CUDA_CHECK( cudaMemcpy(
                         reinterpret_cast<void*>( hitgroup_record ),
@@ -509,7 +498,7 @@ int main( int argc, char* argv[] )
             sbt.missRecordStrideInBytes     = sizeof( MissSbtRecord );
             sbt.missRecordCount             = 1;
             sbt.hitgroupRecordBase          = hitgroup_record;
-            sbt.hitgroupRecordStrideInBytes = sizeof( HitGroupSbtRecord );
+            sbt.hitgroupRecordStrideInBytes = sizeof( HitGroupRecord );
             sbt.hitgroupRecordCount         = 1;
         }
 
