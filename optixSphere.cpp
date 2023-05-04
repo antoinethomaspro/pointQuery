@@ -94,8 +94,13 @@ static void context_log_cb( unsigned int level, const char* tag, const char* mes
 }
 
 const Sphere g_sphere = {
-    { 0.5f, 0.0f, 0.0f }, // center
-    1.5f                  // radius  
+    { 0.7f, 0.0f, 0.0f }, // center
+    0.5f                  // radius  
+};
+
+const Sphere g_sphere2 = {
+    { 0.0f, 1.0f, 0.0f }, // center
+    0.5f                  // radius  
 };
 
 
@@ -173,27 +178,26 @@ int main( int argc, char* argv[] )
 
         //data
         //copy vertex and indices to the GPU
-        std::vector<float3> vertex = {
-            {0.0f, 0.0f, 0.0f},
-            {4.0f, 5.0f, 6.0f},
-            {7.0f, 8.0f, 9.0f}
+        std::vector<float3> center = {
+            g_sphere.center,
+            g_sphere2.center
                                 };
 
-        std::vector<int> index = {{0}};
+        std::vector<float> radius = {g_sphere.radius, g_sphere2.radius};
 
-        CUDABuffer vertexBuffer;
-        CUDABuffer indexBuffer;
+        CUDABuffer centerBuffer;
+        CUDABuffer radiusBuffer;
 
         sphere::SphereHitGroupData model;
 
         // upload the model to the device: the builder
-        vertexBuffer.alloc_and_upload(vertex);
-        indexBuffer.alloc_and_upload(index);
+        centerBuffer.alloc_and_upload(center);
+        radiusBuffer.alloc_and_upload(radius);
 
         // create local variables, because we need a *pointer* to the
         // device pointers (don't use it for now since our data for the intersection is stocked in the buffers)
-        CUdeviceptr d_vertices = vertexBuffer.d_pointer();
-        CUdeviceptr d_indices  = indexBuffer.d_pointer();
+        CUdeviceptr d_center = centerBuffer.d_pointer();
+        CUdeviceptr d_radius  = radiusBuffer.d_pointer();
 
 
 
@@ -215,22 +219,24 @@ int main( int argc, char* argv[] )
             accel_options.buildFlags = OPTIX_BUILD_FLAG_ALLOW_COMPACTION;
             accel_options.operation  = OPTIX_BUILD_OPERATION_BUILD;
 
-            // AABB build input 
-            // OptixAabb   aabb = {-1.5f, -1.5f, -1.5f, 1.5f, 1.5f, 1.5f};
-            // CUdeviceptr d_aabb_buffer;
+          
 
-            OptixAabb   aabb[1];
+            OptixAabb   aabb[2];
             CUdeviceptr d_aabb_buffer;
 
             sphere_bound(
                     g_sphere.center, g_sphere.radius,
                     reinterpret_cast<float*>(&aabb[0]));
 
-            CUDA_CHECK( cudaMalloc( reinterpret_cast<void**>( &d_aabb_buffer ), sizeof( OptixAabb ) ) );
+            sphere_bound(
+                    g_sphere2.center, g_sphere2.radius,
+                    reinterpret_cast<float*>(&aabb[1]));
+
+            CUDA_CHECK( cudaMalloc( reinterpret_cast<void**>( &d_aabb_buffer ), 2 * sizeof( OptixAabb ) ) );
             CUDA_CHECK( cudaMemcpy(
                         reinterpret_cast<void*>( d_aabb_buffer ),
                         &aabb,
-                        sizeof( OptixAabb ),
+                        2 * sizeof( OptixAabb ),
                         cudaMemcpyHostToDevice
                         ) );
 
@@ -238,7 +244,7 @@ int main( int argc, char* argv[] )
 
             aabb_input.type                               = OPTIX_BUILD_INPUT_TYPE_CUSTOM_PRIMITIVES;
             aabb_input.customPrimitiveArray.aabbBuffers   = &d_aabb_buffer;
-            aabb_input.customPrimitiveArray.numPrimitives = 1;
+            aabb_input.customPrimitiveArray.numPrimitives = 2;
 
             uint32_t aabb_input_flags[1]                  = {OPTIX_GEOMETRY_FLAG_NONE};
             aabb_input.customPrimitiveArray.flags         = aabb_input_flags;
@@ -479,10 +485,8 @@ int main( int argc, char* argv[] )
             CUDA_CHECK( cudaMalloc( reinterpret_cast<void**>( &hitgroup_record ), hitgroup_record_size ) );
             
             HitGroupRecord hg_sbt;
-            hg_sbt.data.center = { 0.0f, 0.0f, 0.0f };
-            hg_sbt.data.radius = 1.5f;
-            hg_sbt.data.vertex = (float3*)vertexBuffer.d_pointer();
-            hg_sbt.data.index = (int*)indexBuffer.d_pointer();
+            hg_sbt.data.center = (float3*)centerBuffer.d_pointer();
+            hg_sbt.data.radius = (float*)radiusBuffer.d_pointer();
 
             OPTIX_CHECK( optixSbtRecordPackHeader( hitgroup_prog_group, &hg_sbt ) );
             CUDA_CHECK( cudaMemcpy(

@@ -47,6 +47,8 @@ extern "C" __global__ void __intersection__sphere()
     //const sphere::SphereHitGroupData* hit_group_data = reinterpret_cast<sphere::SphereHitGroupData*>( optixGetSbtDataPointer() );
     const SphereIndex* hit_group_data = reinterpret_cast<SphereIndex*>( optixGetSbtDataPointer() );
 
+    const int   primID = optixGetPrimitiveIndex();
+
 
     const float3 ray_orig = optixGetWorldRayOrigin();
     const float3 ray_dir  = optixGetWorldRayDirection();
@@ -54,11 +56,11 @@ extern "C" __global__ void __intersection__sphere()
     const float  ray_tmax = optixGetRayTmax();
 
     //const float3 O      = ray_orig - hit_group_data->sphere.center;
-    const float3 O      = ray_orig - hit_group_data->center;
+    const float3 O      = ray_orig - hit_group_data->center[primID];
     const float  l      = 1.0f / length( ray_dir );
     const float3 D      = ray_dir * l;
     //const float  radius = hit_group_data->sphere.radius;
-    const float  radius = hit_group_data->radius;
+    const float  radius = hit_group_data->radius[primID];
 
     float b    = dot( O, D );
     float c    = dot( O, O ) - radius * radius;
@@ -198,11 +200,15 @@ extern "C" __global__ void __miss__ms()
 
 extern "C" __global__ void __closesthit__ch()
 {
-    const float3 shading_normal =
-        make_float3(
-                int_as_float( optixGetAttribute_0() ),
-                int_as_float( optixGetAttribute_1() ),
-                int_as_float( optixGetAttribute_2() )
-                );
+    const SphereIndex* hit_group_data = reinterpret_cast<SphereIndex*>( optixGetSbtDataPointer() );
+
+    const int   primID = optixGetPrimitiveIndex();
+
+    const float3 shading_normal = hit_group_data->center[primID];
+        // make_float3(
+        //         int_as_float( optixGetAttribute_0() ),
+        //         int_as_float( optixGetAttribute_1() ),
+        //         int_as_float( optixGetAttribute_2() )
+        //         );
     setPayload( normalize( optixTransformNormalFromObjectToWorldSpace( shading_normal ) ) * 0.5f + 0.5f );
 }
