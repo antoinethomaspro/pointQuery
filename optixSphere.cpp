@@ -63,7 +63,7 @@ struct SbtRecord
 typedef SbtRecord<RayGenData>                 RayGenSbtRecord;
 typedef SbtRecord<MissData>                   MissSbtRecord;
 
-typedef SbtRecord<SphereIndex>                     HitGroupRecord;
+typedef SbtRecord<SphereIndex>                HitGroupRecord;
 
 
 
@@ -95,7 +95,7 @@ static void context_log_cb( unsigned int level, const char* tag, const char* mes
 
 const Sphere g_sphere = {
     { 0.5f, 0.0f, 0.0f }, // center
-    0.5f                  // radius  
+    1.5f                  // radius  
 };
 
 
@@ -479,6 +479,7 @@ int main( int argc, char* argv[] )
             CUDA_CHECK( cudaMalloc( reinterpret_cast<void**>( &hitgroup_record ), hitgroup_record_size ) );
             
             HitGroupRecord hg_sbt;
+            hg_sbt.data.center = { 0.0f, 0.0f, 0.0f };
             hg_sbt.data.radius = 1.5f;
             hg_sbt.data.vertex = (float3*)vertexBuffer.d_pointer();
             hg_sbt.data.index = (int*)indexBuffer.d_pointer();

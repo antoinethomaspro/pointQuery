@@ -43,7 +43,8 @@ struct Sphere
 };
 
 struct SphereIndex {
-    float  radius;
+    float3 	center;
+	float 	radius;
     float3 *vertex;
     int    *index;
 

@@ -26,8 +26,6 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
 
-
-
 #include <optix.h>
 
 #include "optixSphere.h"
@@ -35,12 +33,81 @@
 
 #include <sutil/vec_math.h>
 
-#include "sphere.h"
+// #include "sphere.h"
 
+
+#define float3_as_ints( u ) float_as_int( u.x ), float_as_int( u.y ), float_as_int( u.z )
 
 extern "C" {
 __constant__ Params params;
 }
+
+extern "C" __global__ void __intersection__sphere()
+{
+    //const sphere::SphereHitGroupData* hit_group_data = reinterpret_cast<sphere::SphereHitGroupData*>( optixGetSbtDataPointer() );
+    const SphereIndex* hit_group_data = reinterpret_cast<SphereIndex*>( optixGetSbtDataPointer() );
+
+
+    const float3 ray_orig = optixGetWorldRayOrigin();
+    const float3 ray_dir  = optixGetWorldRayDirection();
+    const float  ray_tmin = optixGetRayTmin();
+    const float  ray_tmax = optixGetRayTmax();
+
+    //const float3 O      = ray_orig - hit_group_data->sphere.center;
+    const float3 O      = ray_orig - hit_group_data->center;
+    const float  l      = 1.0f / length( ray_dir );
+    const float3 D      = ray_dir * l;
+    //const float  radius = hit_group_data->sphere.radius;
+    const float  radius = hit_group_data->radius;
+
+    float b    = dot( O, D );
+    float c    = dot( O, O ) - radius * radius;
+    float disc = b * b - c;
+    if( disc > 0.0f )
+    {
+        float sdisc        = sqrtf( disc );
+        float root1        = ( -b - sdisc );
+        float root11       = 0.0f;
+        bool  check_second = true;
+
+        const bool do_refine = fabsf( root1 ) > ( 10.0f * radius );
+
+        if( do_refine )
+        {
+            // refine root1
+            float3 O1 = O + root1 * D;
+            b         = dot( O1, D );
+            c         = dot( O1, O1 ) - radius * radius;
+            disc      = b * b - c;
+
+            if( disc > 0.0f )
+            {
+                sdisc  = sqrtf( disc );
+                root11 = ( -b - sdisc );
+            }
+        }
+
+        float  t;
+        float3 normal;
+        t = ( root1 + root11 ) * l;
+        if( t > ray_tmin && t < ray_tmax )
+        {
+            normal = ( O + ( root1 + root11 ) * D ) / radius;
+            if( optixReportIntersection( t, 0, float3_as_ints( normal ), float_as_int( radius ) ) )
+                check_second = false;
+        }
+
+        if( check_second )
+        {
+            float root2 = ( -b + sdisc ) + ( do_refine ? root1 : 0 );
+            t           = root2 * l;
+            normal      = ( O + root2 * D ) / radius;
+            if( t > ray_tmin && t < ray_tmax )
+                optixReportIntersection( t, 0, float3_as_ints( normal ), float_as_int( radius ) );
+        }
+    }
+}
+
 
 
 static __forceinline__ __device__ void trace(
@@ -139,68 +206,3 @@ extern "C" __global__ void __closesthit__ch()
                 );
     setPayload( normalize( optixTransformNormalFromObjectToWorldSpace( shading_normal ) ) * 0.5f + 0.5f );
 }
-
-#define float3_as_ints( u ) float_as_int( u.x ), float_as_int( u.y ), float_as_int( u.z )
-
-extern "C" __global__ void __intersection__sphere()
-{
-    const sphere::SphereHitGroupData* hit_group_data = reinterpret_cast<sphere::SphereHitGroupData*>( optixGetSbtDataPointer() );
-
-    const float3 ray_orig = optixGetWorldRayOrigin();
-    const float3 ray_dir  = optixGetWorldRayDirection();
-    const float  ray_tmin = optixGetRayTmin();
-    const float  ray_tmax = optixGetRayTmax();
-
-    const float3 O      = ray_orig - hit_group_data->sphere.center;
-    const float  l      = 1.0f / length( ray_dir );
-    const float3 D      = ray_dir * l;
-    const float  radius = hit_group_data->sphere.radius;
-
-    float b    = dot( O, D );
-    float c    = dot( O, O ) - radius * radius;
-    float disc = b * b - c;
-    if( disc > 0.0f )
-    {
-        float sdisc        = sqrtf( disc );
-        float root1        = ( -b - sdisc );
-        float root11       = 0.0f;
-        bool  check_second = true;
-
-        const bool do_refine = fabsf( root1 ) > ( 10.0f * radius );
-
-        if( do_refine )
-        {
-            // refine root1
-            float3 O1 = O + root1 * D;
-            b         = dot( O1, D );
-            c         = dot( O1, O1 ) - radius * radius;
-            disc      = b * b - c;
-
-            if( disc > 0.0f )
-            {
-                sdisc  = sqrtf( disc );
-                root11 = ( -b - sdisc );
-            }
-        }
-
-        float  t;
-        float3 normal;
-        t = ( root1 + root11 ) * l;
-        if( t > ray_tmin && t < ray_tmax )
-        {
-            normal = ( O + ( root1 + root11 ) * D ) / radius;
-            if( optixReportIntersection( t, 0, float3_as_ints( normal ), float_as_int( radius ) ) )
-                check_second = false;
-        }
-
-        if( check_second )
-        {
-            float root2 = ( -b + sdisc ) + ( do_refine ? root1 : 0 );
-            t           = root2 * l;
-            normal      = ( O + root2 * D ) / radius;
-            if( t > ray_tmin && t < ray_tmax )
-                optixReportIntersection( t, 0, float3_as_ints( normal ), float_as_int( radius ) );
-        }
-    }
-}
-
