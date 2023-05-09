@@ -60,18 +60,23 @@ struct SbtRecord
     T data;
 };
 
-typedef SbtRecord<RayGenData>                 RayGenSbtRecord;
-typedef SbtRecord<MissData>                   MissSbtRecord;
+typedef SbtRecord<RayGenData>                   RayGenSbtRecord;
+typedef SbtRecord<MissData>                     MissSbtRecord;
 
-typedef SbtRecord<SphereIndex>                HitGroupRecord;
+typedef SbtRecord<TetrahedronIndex>             HitGroupRecord;
+
+
+const uint32_t OBJ_COUNT = 1;
+
+
 
 
 
 void configureCamera( sutil::Camera& cam, const uint32_t width, const uint32_t height )
 {
-    cam.setEye( {0.0f, 0.0f, 3.0f} );
+    cam.setEye( {0.0f, 0.0f, 5.0f} );
     cam.setLookat( {0.0f, 0.0f, 0.0f} );
-    cam.setUp( {0.0f, 1.0f, 3.0f} );
+    cam.setUp( {0.0f, 1.0f, 0.0f} );
     cam.setFovY( 60.0f );
     cam.setAspectRatio( (float)width / (float)height );
 }
@@ -110,6 +115,29 @@ static void sphere_bound(float3 center, float radius, float result[6])
 
     float3 m_min = center - radius;
     float3 m_max = center + radius;
+
+    *aabb = {
+        m_min.x, m_min.y, m_min.z,
+        m_max.x, m_max.y, m_max.z
+    };
+}
+
+static void tetrahedron_bound(std::vector<float3> vertices, float result[6])
+{
+    OptixAabb *aabb = reinterpret_cast<OptixAabb*>(result);
+
+    float3 m_min = vertices[0];
+    float3 m_max = vertices[0];
+
+    for (int i = 1; i < 4; i++) {
+        const float3& v = vertices[i];
+        m_min.x = std::min(m_min.x, v.x);
+        m_min.y = std::min(m_min.y, v.y);
+        m_min.z = std::min(m_min.z, v.z);
+        m_max.x = std::max(m_max.x, v.x);
+        m_max.y = std::max(m_max.y, v.y);
+        m_max.z = std::max(m_max.z, v.z);
+    }
 
     *aabb = {
         m_min.x, m_min.y, m_min.z,
@@ -185,27 +213,37 @@ int main( int argc, char* argv[] )
 
         std::vector<float> radius = {g_sphere.radius, g_sphere2.radius};
 
+        //tetrahedron data
+
+        std::vector<float3> vertices = {
+            { 0.f, 0.f, 0.f },
+            { 1.f, 0.f, 0.f },
+            { 0.f, 1.f, 0.f },
+            { 0.f, 0.f, 1.f },
+                                };
+
+        std::vector<int> indices = {0, 1, 2, 3};
+
+        //buffers
+
         CUDABuffer centerBuffer;
         CUDABuffer radiusBuffer;
 
-        sphere::SphereHitGroupData model;
+        CUDABuffer vertexBuffer;
+        CUDABuffer indexBuffer;
+
 
         // upload the model to the device: the builder
         centerBuffer.alloc_and_upload(center);
         radiusBuffer.alloc_and_upload(radius);
 
+        vertexBuffer.alloc_and_upload(vertices);
+        indexBuffer.alloc_and_upload(indices);
+
         // create local variables, because we need a *pointer* to the
         // device pointers (don't use it for now since our data for the intersection is stocked in the buffers)
         CUdeviceptr d_center = centerBuffer.d_pointer();
         CUdeviceptr d_radius  = radiusBuffer.d_pointer();
-
-
-
-        //data
-
-
-
-
 
 
 
@@ -221,22 +259,17 @@ int main( int argc, char* argv[] )
 
           
 
-            OptixAabb   aabb[2];
+            OptixAabb   aabb[OBJ_COUNT];
             CUdeviceptr d_aabb_buffer;
 
-            sphere_bound(
-                    g_sphere.center, g_sphere.radius,
-                    reinterpret_cast<float*>(&aabb[0]));
+            tetrahedron_bound(vertices, reinterpret_cast<float*>(&aabb[0]));
 
-            sphere_bound(
-                    g_sphere2.center, g_sphere2.radius,
-                    reinterpret_cast<float*>(&aabb[1]));
 
-            CUDA_CHECK( cudaMalloc( reinterpret_cast<void**>( &d_aabb_buffer ), 2 * sizeof( OptixAabb ) ) );
+            CUDA_CHECK( cudaMalloc( reinterpret_cast<void**>( &d_aabb_buffer ), OBJ_COUNT * sizeof( OptixAabb ) ) );
             CUDA_CHECK( cudaMemcpy(
                         reinterpret_cast<void*>( d_aabb_buffer ),
                         &aabb,
-                        2 * sizeof( OptixAabb ),
+                        OBJ_COUNT * sizeof( OptixAabb ),
                         cudaMemcpyHostToDevice
                         ) );
 
@@ -244,7 +277,7 @@ int main( int argc, char* argv[] )
 
             aabb_input.type                               = OPTIX_BUILD_INPUT_TYPE_CUSTOM_PRIMITIVES;
             aabb_input.customPrimitiveArray.aabbBuffers   = &d_aabb_buffer;
-            aabb_input.customPrimitiveArray.numPrimitives = 2;
+            aabb_input.customPrimitiveArray.numPrimitives = OBJ_COUNT;
 
             uint32_t aabb_input_flags[1]                  = {OPTIX_GEOMETRY_FLAG_NONE};
             aabb_input.customPrimitiveArray.flags         = aabb_input_flags;
@@ -383,7 +416,7 @@ int main( int argc, char* argv[] )
             hitgroup_prog_group_desc.hitgroup.moduleAH            = nullptr;
             hitgroup_prog_group_desc.hitgroup.entryFunctionNameAH = nullptr;
             hitgroup_prog_group_desc.hitgroup.moduleIS            = module;
-            hitgroup_prog_group_desc.hitgroup.entryFunctionNameIS = "__intersection__sphere";
+            hitgroup_prog_group_desc.hitgroup.entryFunctionNameIS = "__intersection__triangle";
             sizeof_log = sizeof( log );
             OPTIX_CHECK_LOG( optixProgramGroupCreate(
                         context,
@@ -485,8 +518,8 @@ int main( int argc, char* argv[] )
             CUDA_CHECK( cudaMalloc( reinterpret_cast<void**>( &hitgroup_record ), hitgroup_record_size ) );
             
             HitGroupRecord hg_sbt;
-            hg_sbt.data.center = (float3*)centerBuffer.d_pointer();
-            hg_sbt.data.radius = (float*)radiusBuffer.d_pointer();
+            hg_sbt.data.vertices = (float3*)vertexBuffer.d_pointer();
+            hg_sbt.data.indices = (int*)indexBuffer.d_pointer();
 
             OPTIX_CHECK( optixSbtRecordPackHeader( hitgroup_prog_group, &hg_sbt ) );
             CUDA_CHECK( cudaMemcpy(
@@ -567,7 +600,6 @@ int main( int argc, char* argv[] )
             OPTIX_CHECK( optixProgramGroupDestroy( miss_prog_group ) );
             OPTIX_CHECK( optixProgramGroupDestroy( raygen_prog_group ) );
             OPTIX_CHECK( optixModuleDestroy( module ) );
-            OPTIX_CHECK( optixModuleDestroy( sphere_module ) );
 
             OPTIX_CHECK( optixDeviceContextDestroy( context ) );
         }

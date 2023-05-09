@@ -41,6 +41,125 @@
 extern "C" {
 __constant__ Params params;
 }
+/*
+Tetrahedron:                          Tetrahedron10:
+
+                   v
+                 .
+               ,/
+              /
+           3                                     2
+         ,/|`\                                 ,/|`\
+       ,/  |  `\                             ,/  |  `\
+     ,/    '.   `\                         ,6    '.   `5
+   ,/       |     `\                     ,/       8     `\
+ ,/         |       `\                 ,/         |       `\
+1-----------'.--------2 --> u         0--------4--'.--------1
+ `\.         |      ,/                 `\.         |      ,/
+    `\.      |    ,/                      `\.      |    ,9
+       `\.   '. ,/                           `7.   '. ,/
+          `\. |/                                `\. |/
+             `4                                    `3
+                `\.
+                   ` w
+
+*/
+
+
+static __forceinline__ __device__ bool isDotProductNegative(const float3& v1, const float3& v2) 
+    {
+        float dotProduct = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+        return dotProduct < 0;
+    }
+
+static __forceinline__ __device__ bool PointInTetrahedron(const float3& v1, const float3& v2, const float3& v3, const float3& v4, const float3& p)
+    {
+
+    const float3 norm1 = normalize( cross((v4-v1),(v3-v1)));
+    const float3 norm2 = normalize( cross((v2-v4),(v4-v3)));
+    const float3 norm3 = normalize( cross((v1-v4),(v2-v4)));
+    const float3 norm4 = normalize( cross((v3-v1),(v2-v1)));
+
+    return isDotProductNegative(norm1, (p - v1)) &&
+           isDotProductNegative(norm2, (p - v3)) &&
+           isDotProductNegative(norm3, (p - v4)) &&
+           isDotProductNegative(norm4, (p - v3));               
+    }
+
+extern "C" __global__ void __intersection__triangle()
+{
+    const TetrahedronIndex* hit_group_data = reinterpret_cast<TetrahedronIndex*>( optixGetSbtDataPointer() );
+    const int   primID = optixGetPrimitiveIndex();
+
+    const float3 ray_orig = optixGetWorldRayOrigin();
+    const float3 ray_dir  = optixGetWorldRayDirection();
+
+    const int index1 = hit_group_data->indices[primID];
+    const int index2 = hit_group_data->indices[primID + 1];
+    const int index3 = hit_group_data->indices[primID + 2];
+    const int index4 = hit_group_data->indices[primID + 3];
+
+    const float3 v1 = hit_group_data->vertices[index1];
+    const float3 v2 = hit_group_data->vertices[index2];
+    const float3 v3 = hit_group_data->vertices[index3];
+    const float3 v4 = hit_group_data->vertices[index4];
+
+    float3 v1v2 = v2 - v1;
+	float3 v1v3 = v3 - v1;
+
+    float3 pvec = cross(ray_dir, v1v3);
+	float det = dot(v1v2, pvec);
+
+    if (abs(det) < 1e-5)
+		return;
+
+    float invDet = 1. / det;
+
+    float3 tvec = ray_orig - v1;
+	float u = dot(tvec, pvec) * invDet;
+	if (u < -1.e-5 || u > (1. + 1.e-5))
+		return;
+
+	float3 qvec = cross(tvec, v1v2);
+	float v = dot(ray_dir, qvec) * invDet;
+	if (v < -1.e-5 || u + v > (1. + 1.e-5))
+		return;
+
+	optixReportIntersection(0., 0.);
+
+}
+
+
+
+
+
+// extern "C" __global__ void __intersection__tetrahedron()
+// {
+//     const TetrahedronIndex* hit_group_data = reinterpret_cast<TetrahedronIndex*>( optixGetSbtDataPointer() );
+//     const int   primID = optixGetPrimitiveIndex();
+
+//     const float3 ray_orig = optixGetWorldRayOrigin();
+//     const float3 ray_dir  = optixGetWorldRayDirection();
+   
+
+//     const int index1 = hit_group_data->indices[primID];
+//     const int index2 = hit_group_data->indices[primID + 1];
+//     const int index3 = hit_group_data->indices[primID + 2];
+
+
+//     const float3 v1 = hit_group_data->vertices[index1];
+//     const float3 v2 = hit_group_data->vertices[index2];
+//     const float3 v3 = hit_group_data->vertices[index3];
+   
+
+//     //compute
+
+//     if( PointInTetrahedron(v1, v2, v3, v4, ray_orig) )
+//              optixReportIntersection(0., 0.);
+
+//              //optixReportIntersection( t, 0, float3_as_ints( normal ), float_as_int( radius ) );
+
+// }
 
 extern "C" __global__ void __intersection__sphere()
 {
@@ -200,11 +319,11 @@ extern "C" __global__ void __miss__ms()
 
 extern "C" __global__ void __closesthit__ch()
 {
-    const SphereIndex* hit_group_data = reinterpret_cast<SphereIndex*>( optixGetSbtDataPointer() );
+    const TetrahedronIndex* hit_group_data = reinterpret_cast<TetrahedronIndex*>( optixGetSbtDataPointer() );
 
     const int   primID = optixGetPrimitiveIndex();
 
-    const float3 shading_normal = hit_group_data->center[primID];
+    const float3 shading_normal = hit_group_data->vertices[primID];
         // make_float3(
         //         int_as_float( optixGetAttribute_0() ),
         //         int_as_float( optixGetAttribute_1() ),

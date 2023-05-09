@@ -48,6 +48,12 @@ struct SphereIndex {
 
   };
 
+struct TetrahedronIndex
+{
+    float3 *vertices;
+    int    *indices;
+};
+
 struct RayGenData
 {
     float3 cam_eye;
