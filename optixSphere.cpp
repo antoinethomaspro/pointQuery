@@ -66,7 +66,7 @@ typedef SbtRecord<MissData>                     MissSbtRecord;
 typedef SbtRecord<TetrahedronIndex>             HitGroupRecord;
 
 
-const uint32_t OBJ_COUNT = 1;
+const uint32_t OBJ_COUNT = 5;
 
 
 
@@ -74,10 +74,10 @@ const uint32_t OBJ_COUNT = 1;
 
 void configureCamera( sutil::Camera& cam, const uint32_t width, const uint32_t height )
 {
-    cam.setEye( {0.0f, 0.0f, 5.0f} );
+    cam.setEye( {3.0f, 3.0f, 3.0f} );
     cam.setLookat( {0.0f, 0.0f, 0.0f} );
     cam.setUp( {0.0f, 1.0f, 0.0f} );
-    cam.setFovY( 60.0f );
+    cam.setFovY( 45.0f );
     cam.setAspectRatio( (float)width / (float)height );
 }
 
@@ -98,39 +98,16 @@ static void context_log_cb( unsigned int level, const char* tag, const char* mes
     << message << "\n";
 }
 
-const Sphere g_sphere = {
-    { 0.7f, 0.0f, 0.0f }, // center
-    0.5f                  // radius  
-};
 
-const Sphere g_sphere2 = {
-    { 0.0f, 1.0f, 0.0f }, // center
-    0.5f                  // radius  
-};
-
-
-static void sphere_bound(float3 center, float radius, float result[6])
+static void tetrahedron_bound(std::vector<float3>& vertices, float result[6], int tet_index, std::vector<int>& indices)
 {
     OptixAabb *aabb = reinterpret_cast<OptixAabb*>(result);
 
-    float3 m_min = center - radius;
-    float3 m_max = center + radius;
-
-    *aabb = {
-        m_min.x, m_min.y, m_min.z,
-        m_max.x, m_max.y, m_max.z
-    };
-}
-
-static void tetrahedron_bound(std::vector<float3> vertices, float result[6])
-{
-    OptixAabb *aabb = reinterpret_cast<OptixAabb*>(result);
-
-    float3 m_min = vertices[0];
-    float3 m_max = vertices[0];
+    float3 m_min = vertices[indices[tet_index * 4]];
+    float3 m_max = vertices[indices[tet_index * 4]];
 
     for (int i = 1; i < 4; i++) {
-        const float3& v = vertices[i];
+        const float3& v = vertices[indices[tet_index * 4 + i]];
         m_min.x = std::min(m_min.x, v.x);
         m_min.y = std::min(m_min.y, v.y);
         m_min.z = std::min(m_min.z, v.z);
@@ -206,46 +183,30 @@ int main( int argc, char* argv[] )
 
         //data
         //copy vertex and indices to the GPU
-        std::vector<float3> center = {
-            g_sphere.center,
-            g_sphere2.center
-                                };
-
-        std::vector<float> radius = {g_sphere.radius, g_sphere2.radius};
-
         //tetrahedron data
-
         std::vector<float3> vertices = {
             { 0.f, 0.f, 0.f },
             { 1.f, 0.f, 0.f },
             { 0.f, 1.f, 0.f },
             { 0.f, 0.f, 1.f },
-                                };
+            {0.f, -1.f,  0.f},
+            {-1.f, 0.f, 0.f} ,
+            {0.f, 0.f, -1.f},
+            {1.f, 1.f, 1.f }
+        };
 
-        std::vector<int> indices = {0, 1, 2, 3};
+        std::vector<int> indices = {0, 1, 2, 3,
+                                    0, 1, 6, 2, 
+                                    0, 3, 2, 5, 
+                                    0, 1, 3, 4, 
+                                    3, 1, 2, 7};
 
         //buffers
-
-        CUDABuffer centerBuffer;
-        CUDABuffer radiusBuffer;
-
         CUDABuffer vertexBuffer;
         CUDABuffer indexBuffer;
 
-
-        // upload the model to the device: the builder
-        centerBuffer.alloc_and_upload(center);
-        radiusBuffer.alloc_and_upload(radius);
-
         vertexBuffer.alloc_and_upload(vertices);
         indexBuffer.alloc_and_upload(indices);
-
-        // create local variables, because we need a *pointer* to the
-        // device pointers (don't use it for now since our data for the intersection is stocked in the buffers)
-        CUdeviceptr d_center = centerBuffer.d_pointer();
-        CUdeviceptr d_radius  = radiusBuffer.d_pointer();
-
-
 
         //
         // accel handling
@@ -262,7 +223,10 @@ int main( int argc, char* argv[] )
             OptixAabb   aabb[OBJ_COUNT];
             CUdeviceptr d_aabb_buffer;
 
-            tetrahedron_bound(vertices, reinterpret_cast<float*>(&aabb[0]));
+            for(int i = 0; i < OBJ_COUNT; i++)
+                tetrahedron_bound(vertices, reinterpret_cast<float*>(&aabb[i]), i , indices);
+
+
 
 
             CUDA_CHECK( cudaMalloc( reinterpret_cast<void**>( &d_aabb_buffer ), OBJ_COUNT * sizeof( OptixAabb ) ) );
@@ -416,7 +380,7 @@ int main( int argc, char* argv[] )
             hitgroup_prog_group_desc.hitgroup.moduleAH            = nullptr;
             hitgroup_prog_group_desc.hitgroup.entryFunctionNameAH = nullptr;
             hitgroup_prog_group_desc.hitgroup.moduleIS            = module;
-            hitgroup_prog_group_desc.hitgroup.entryFunctionNameIS = "__intersection__triangle";
+            hitgroup_prog_group_desc.hitgroup.entryFunctionNameIS = "__intersection__behind__triangle";
             sizeof_log = sizeof( log );
             OPTIX_CHECK_LOG( optixProgramGroupCreate(
                         context,
@@ -498,7 +462,7 @@ int main( int argc, char* argv[] )
             size_t      miss_record_size = sizeof( MissSbtRecord );
             CUDA_CHECK( cudaMalloc( reinterpret_cast<void**>( &miss_record ), miss_record_size ) );
             MissSbtRecord ms_sbt;
-            ms_sbt.data = { 0.3f, 0.1f, 0.2f };
+            ms_sbt.data = { 0.f };
             OPTIX_CHECK( optixSbtRecordPackHeader( miss_prog_group, &ms_sbt ) );
             CUDA_CHECK( cudaMemcpy(
                         reinterpret_cast<void*>( miss_record ),

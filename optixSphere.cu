@@ -41,6 +41,7 @@
 extern "C" {
 __constant__ Params params;
 }
+
 /*
 Tetrahedron:                          Tetrahedron10:
 
@@ -65,171 +66,34 @@ Tetrahedron:                          Tetrahedron10:
 
 */
 
-
-static __forceinline__ __device__ bool isDotProductNegative(const float3& v1, const float3& v2) 
-    {
-        float dotProduct = v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
-        return dotProduct < 0;
-    }
-
-static __forceinline__ __device__ bool PointInTetrahedron(const float3& v1, const float3& v2, const float3& v3, const float3& v4, const float3& p)
-    {
-
-    const float3 norm1 = normalize( cross((v4-v1),(v3-v1)));
-    const float3 norm2 = normalize( cross((v2-v4),(v4-v3)));
-    const float3 norm3 = normalize( cross((v1-v4),(v2-v4)));
-    const float3 norm4 = normalize( cross((v3-v1),(v2-v1)));
-
-    return isDotProductNegative(norm1, (p - v1)) &&
-           isDotProductNegative(norm2, (p - v3)) &&
-           isDotProductNegative(norm3, (p - v4)) &&
-           isDotProductNegative(norm4, (p - v3));               
-    }
-
-extern "C" __global__ void __intersection__triangle()
+extern "C" __global__ void __intersection__behind__triangle()
 {
     const TetrahedronIndex* hit_group_data = reinterpret_cast<TetrahedronIndex*>( optixGetSbtDataPointer() );
-    const int   primID = optixGetPrimitiveIndex();
+    const int primID = optixGetPrimitiveIndex();
+    const float3 ray_origin = optixGetWorldRayOrigin();
 
-    const float3 ray_orig = optixGetWorldRayOrigin();
-    const float3 ray_dir  = optixGetWorldRayDirection();
-
-    const int index1 = hit_group_data->indices[primID];
-    const int index2 = hit_group_data->indices[primID + 1];
-    const int index3 = hit_group_data->indices[primID + 2];
-    const int index4 = hit_group_data->indices[primID + 3];
-
+    const int index1 = hit_group_data->indices[primID * 4];
+    const int index2 = hit_group_data->indices[primID * 4 + 1];
+    const int index3 = hit_group_data->indices[primID * 4 + 2];
+    const int index4 = hit_group_data->indices[primID * 4 + 3];
+    
     const float3 v1 = hit_group_data->vertices[index1];
     const float3 v2 = hit_group_data->vertices[index2];
     const float3 v3 = hit_group_data->vertices[index3];
     const float3 v4 = hit_group_data->vertices[index4];
 
-    float3 v1v2 = v2 - v1;
-	float3 v1v3 = v3 - v1;
+    const float3 norm1 = normalize(cross((v4-v1),(v3-v1)));
+    const float3 norm2 = normalize(cross((v2-v4),(v3-v4)));
+    const float3 norm3 = normalize(cross((v2-v1),(v4-v1)));
+    const float3 norm4 = normalize(cross((v3-v1),(v2-v1)));
 
-    float3 pvec = cross(ray_dir, v1v3);
-	float det = dot(v1v2, pvec);
-
-    if (abs(det) < 1e-5)
-		return;
-
-    float invDet = 1. / det;
-
-    float3 tvec = ray_orig - v1;
-	float u = dot(tvec, pvec) * invDet;
-	if (u < -1.e-5 || u > (1. + 1.e-5))
-		return;
-
-	float3 qvec = cross(tvec, v1v2);
-	float v = dot(ray_dir, qvec) * invDet;
-	if (v < -1.e-5 || u + v > (1. + 1.e-5))
-		return;
-
-	optixReportIntersection(0., 0.);
-
-}
-
-
-
-
-
-// extern "C" __global__ void __intersection__tetrahedron()
-// {
-//     const TetrahedronIndex* hit_group_data = reinterpret_cast<TetrahedronIndex*>( optixGetSbtDataPointer() );
-//     const int   primID = optixGetPrimitiveIndex();
-
-//     const float3 ray_orig = optixGetWorldRayOrigin();
-//     const float3 ray_dir  = optixGetWorldRayDirection();
-   
-
-//     const int index1 = hit_group_data->indices[primID];
-//     const int index2 = hit_group_data->indices[primID + 1];
-//     const int index3 = hit_group_data->indices[primID + 2];
-
-
-//     const float3 v1 = hit_group_data->vertices[index1];
-//     const float3 v2 = hit_group_data->vertices[index2];
-//     const float3 v3 = hit_group_data->vertices[index3];
-   
-
-//     //compute
-
-//     if( PointInTetrahedron(v1, v2, v3, v4, ray_orig) )
-//              optixReportIntersection(0., 0.);
-
-//              //optixReportIntersection( t, 0, float3_as_ints( normal ), float_as_int( radius ) );
-
-// }
-
-extern "C" __global__ void __intersection__sphere()
-{
-    //const sphere::SphereHitGroupData* hit_group_data = reinterpret_cast<sphere::SphereHitGroupData*>( optixGetSbtDataPointer() );
-    const SphereIndex* hit_group_data = reinterpret_cast<SphereIndex*>( optixGetSbtDataPointer() );
-
-    const int   primID = optixGetPrimitiveIndex();
-
-
-    const float3 ray_orig = optixGetWorldRayOrigin();
-    const float3 ray_dir  = optixGetWorldRayDirection();
-    const float  ray_tmin = optixGetRayTmin();
-    const float  ray_tmax = optixGetRayTmax();
-
-    //const float3 O      = ray_orig - hit_group_data->sphere.center;
-    const float3 O      = ray_orig - hit_group_data->center[primID];
-    const float  l      = 1.0f / length( ray_dir );
-    const float3 D      = ray_dir * l;
-    //const float  radius = hit_group_data->sphere.radius;
-    const float  radius = hit_group_data->radius[primID];
-
-    float b    = dot( O, D );
-    float c    = dot( O, O ) - radius * radius;
-    float disc = b * b - c;
-    if( disc > 0.0f )
-    {
-        float sdisc        = sqrtf( disc );
-        float root1        = ( -b - sdisc );
-        float root11       = 0.0f;
-        bool  check_second = true;
-
-        const bool do_refine = fabsf( root1 ) > ( 10.0f * radius );
-
-        if( do_refine )
-        {
-            // refine root1
-            float3 O1 = O + root1 * D;
-            b         = dot( O1, D );
-            c         = dot( O1, O1 ) - radius * radius;
-            disc      = b * b - c;
-
-            if( disc > 0.0f )
-            {
-                sdisc  = sqrtf( disc );
-                root11 = ( -b - sdisc );
-            }
-        }
-
-        float  t;
-        float3 normal;
-        t = ( root1 + root11 ) * l;
-        if( t > ray_tmin && t < ray_tmax )
-        {
-            normal = ( O + ( root1 + root11 ) * D ) / radius;
-            if( optixReportIntersection( t, 0, float3_as_ints( normal ), float_as_int( radius ) ) )
-                check_second = false;
-        }
-
-        if( check_second )
-        {
-            float root2 = ( -b + sdisc ) + ( do_refine ? root1 : 0 );
-            t           = root2 * l;
-            normal      = ( O + root2 * D ) / radius;
-            if( t > ray_tmin && t < ray_tmax )
-                optixReportIntersection( t, 0, float3_as_ints( normal ), float_as_int( radius ) );
-        }
+    if((dot(norm1, (ray_origin - v1)) < 1e-5) && 
+       (dot(norm2, (ray_origin - v4)) < 1e-5) &&
+       (dot(norm3, (ray_origin - v1)) < 1e-5) && 
+       (dot(norm4, (ray_origin - v1)) < 1e-5)){          
+            optixReportIntersection(0., 0., primID);
     }
 }
-
-
 
 static __forceinline__ __device__ void trace(
         OptixTraversableHandle handle,
@@ -262,14 +126,12 @@ static __forceinline__ __device__ void trace(
     prd->z = int_as_float( p2 );
 }
 
-
 static __forceinline__ __device__ void setPayload( float3 p )
 {
     optixSetPayload_0( float_as_int( p.x ) );
     optixSetPayload_1( float_as_int( p.y ) );
     optixSetPayload_2( float_as_int( p.z ) );
 }
-
 
 static __forceinline__ __device__ float3 getPayload()
 {
@@ -279,7 +141,6 @@ static __forceinline__ __device__ float3 getPayload()
             int_as_float( optixGetPayload_2() )
             );
 }
-
 
 extern "C" __global__ void __raygen__rg()
 {
@@ -295,15 +156,25 @@ extern "C" __global__ void __raygen__rg()
             static_cast<float>( idx.y ) / static_cast<float>( dim.y )
             ) - 1.0f;
 
-    const float3 origin      = rtData->cam_eye;
+    float3 originPrimaryRay      = rtData->cam_eye;
     const float3 direction   = normalize( d.x * U + d.y * V + W );
-    float3       payload_rgb = make_float3( 0.5f, 0.5f, 0.5f );
-    trace( params.handle,
+    float3 payload_rgb = make_float3( 0.0f, 0.0f, 0.0f );
+
+    for (float i = 0.f; i < 10.f; i+=0.05f ) {
+
+        float3 origin = originPrimaryRay + direction*i;
+
+        trace( params.handle,
             origin,
             direction,
             0.00f,  // tmin
-            1e16f,  // tmax
+            1e-16f,  // tmax
             &payload_rgb );
+
+
+    // Code to be executed in each iteration of the loop goes here
+    
+    }
 
     params.image[idx.y * params.image_width + idx.x] = make_color( payload_rgb );
 }
@@ -311,23 +182,31 @@ extern "C" __global__ void __raygen__rg()
 
 extern "C" __global__ void __miss__ms()
 {
-    MissData* rt_data  = reinterpret_cast<MissData*>( optixGetSbtDataPointer() );
-    float3    payload = getPayload();
-    setPayload( make_float3( rt_data->r, rt_data->g, rt_data->b ) );
+
 }
 
 
 extern "C" __global__ void __closesthit__ch()
 {
-    const TetrahedronIndex* hit_group_data = reinterpret_cast<TetrahedronIndex*>( optixGetSbtDataPointer() );
+    float3    payload = getPayload();
+    int primID = optixGetAttribute_0();
 
-    const int   primID = optixGetPrimitiveIndex();
-
-    const float3 shading_normal = hit_group_data->vertices[primID];
-        // make_float3(
-        //         int_as_float( optixGetAttribute_0() ),
-        //         int_as_float( optixGetAttribute_1() ),
-        //         int_as_float( optixGetAttribute_2() )
-        //         );
-    setPayload( normalize( optixTransformNormalFromObjectToWorldSpace( shading_normal ) ) * 0.5f + 0.5f );
+    switch(primID){
+        case 0:
+            setPayload( payload + make_float3( 0.05f, 0.f, 0.f));
+            break;
+        case 1:
+            setPayload( payload + make_float3( 0.f, 0.05f, 0.f));
+            break;
+        case 2:
+            setPayload( payload + make_float3( 0.f, 0.f, 0.05f));
+            break;
+        case 3:
+            setPayload( payload + make_float3( 0.05, 0.05f, 0.f));
+            break;
+        case 4:
+            setPayload( payload + make_float3( 0.f, 0.05f, 0.05f));
+            break;
+    }
+    
 }
